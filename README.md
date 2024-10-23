@@ -12,8 +12,6 @@ Table of Contents
 	•	Procedure Overview
 	•	Usage Examples
 	•	Contributing
-	•	License
-	•	Acknowledgments
 
 Features
 
