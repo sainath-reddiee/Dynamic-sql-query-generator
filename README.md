@@ -1,4 +1,3 @@
-Here’s a revised README for your GitHub repository, including your specific procedure-calling format and some sample test scenarios:
 
 Dynamic SQL Query Generator for Snowflake
 
