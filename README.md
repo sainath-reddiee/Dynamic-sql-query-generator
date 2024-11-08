@@ -1,19 +1,18 @@
-
 Dynamic SQL Query Generator for Snowflake
 
-This repository provides a Snowflake procedure, DYNAMIC_SQL_LARGE, designed to dynamically generate SQL queries from complex JSON data structures. It enables efficient handling of JSON schema, operator compatibility, type casting, and performance optimization for enterprise-scale data processing.
+Welcome to the Dynamic SQL Query Generator for Snowflake! This procedure, DYNAMIC_SQL_LARGE, empowers Snowflake users to dynamically generate SQL queries from complex JSON data. Designed for enterprise-scale processing, it enables efficient handling of JSON schema, operator compatibility, type casting, and performance optimization.
 
-Features
+🚀 Features
 
-	•	Dynamic Schema Caching: Speeds up query generation by caching JSON schemas.
-	•	Comprehensive Operator Support: Supports operators like IN, NOT IN, BETWEEN, LIKE, and more.
+	•	Dynamic Schema Caching: Enhances query generation speed by caching JSON schemas.
+	•	Comprehensive Operator Support: Supports operators such as IN, NOT IN, BETWEEN, LIKE, etc.
 	•	Flexible Type Casting: Dynamically casts fields to specified data types.
-	•	Array and Nested Structure Handling: Manages complex JSON structures with deep hierarchies.
-	•	Robust Error Handling: Provides detailed feedback for easy troubleshooting.
+	•	Array and Nested Structure Handling: Processes deeply nested JSON with complex hierarchies.
+	•	Robust Error Handling: Offers detailed feedback to streamline troubleshooting.
 
-Usage
+📘 Usage
 
-The procedure can be called in the following format:
+Call the procedure in the following format:
 
 CALL DYNAMIC_SQL_LARGE('TABLE_NAME', 'COLUMN_NAME', 'FIELD_CONDITIONS');
 
@@ -25,15 +24,14 @@ CALL DYNAMIC_SQL_LARGE(
     'height[IN:10|30,CAST:INTEGER],month[CAST:TIMESTAMP],product_id[=:P200]'
 );
 
-In this example:
-	•	height: Filters with IN operator for values 10 and 30, and casts the result as INTEGER.
-	•	month: Casts the field to TIMESTAMP.
-	•	product_id: Filters with the = operator, matching the value P200.
+Explanation:
+	•	height: Filters with IN for values 10 and 30, casting as INTEGER.
+	•	month: Casts to TIMESTAMP.
+	•	product_id: Filters with the = operator, matching P200.
 
-Sample Test Scenarios
+🔍 Sample Test Scenarios
 
-Here are some example scenarios to test the procedure:
-	1.	Simple Filtering and Casting
+1. Simple Filtering and Casting
 
 CALL DYNAMIC_SQL_LARGE(
     'EMPLOYEE_DATA',
@@ -41,10 +39,10 @@ CALL DYNAMIC_SQL_LARGE(
     'salary[>:50000,CAST:INTEGER],start_date[CAST:DATE]'
 );
 
-	•	Filters salary with values greater than 50000, casting it to INTEGER.
+	•	Filters salary > 50000, casting as INTEGER.
 	•	Casts start_date to DATE.
 
-	2.	Using Array Paths
+2. Using Array Paths
 
 CALL DYNAMIC_SQL_LARGE(
     'ORDERS_TABLE',
@@ -52,9 +50,10 @@ CALL DYNAMIC_SQL_LARGE(
     'order_ids[IN:101|102|103],status[=:Shipped]'
 );
 
-	•	Filters order_ids for specific values and status for the value Shipped.
+	•	Filters order_ids for specific values.
+	•	Filters status for Shipped.
 
-	3.	Complex Nested JSON Structures
+3. Complex Nested JSON Structures
 
 CALL DYNAMIC_SQL_LARGE(
     'INVENTORY',
@@ -62,10 +61,10 @@ CALL DYNAMIC_SQL_LARGE(
     'dimensions.width[>:15,CAST:FLOAT],tags[LIKE:%Electronic%]'
 );
 
-	•	Filters dimensions.width for values greater than 15, casting it to FLOAT.
-	•	Uses LIKE operator on tags to filter records containing “Electronic”.
+	•	Filters dimensions.width > 15, casting as FLOAT.
+	•	Uses LIKE on tags to filter for records containing “Electronic”.
 
-	4.	BETWEEN Operator Usage
+4. BETWEEN Operator Usage
 
 CALL DYNAMIC_SQL_LARGE(
     'TRANSACTION_HISTORY',
@@ -73,17 +72,15 @@ CALL DYNAMIC_SQL_LARGE(
     'transaction_amount[BETWEEN:1000|5000],date[CAST:DATE]'
 );
 
-	•	Filters transaction_amount for values between 1000 and 5000.
+	•	Filters transaction_amount between 1000 and 5000.
 	•	Casts date to DATE.
 
-Repository Structure
+📁 Repository Structure
 
-	•	dynamic_sql_large.sql: The main procedure for dynamic SQL generation.
+	•	dynamic_sql_large.sql: Contains the main procedure for dynamic SQL generation.
 	•	README.md: Documentation and usage instructions.
-	•	test_cases.sql: Contains sample test cases to validate the procedure functionality.
+	•	test_cases.sql: Sample test cases to validate the procedure’s functionality.
 
-Contributing
+🤝 Contributing
 
-Feel free to test, open issues, and contribute enhancements. For any suggestions or bug reports, please open an issue in the GitHub repository.
-
-This README provides clear instructions, usage examples, and test scenarios to help users quickly understand and apply the dynamic SQL generator. Let me know if there’s anything more you’d like to add!
+We welcome contributions! Feel free to test the code, open issues, and suggest enhancements. For questions or bug reports, please create an issue in this repository.
