@@ -1,61 +1,90 @@
-# Dynamic-sql-query-generator
-Dynamic SQL Query Generator for JSON in Snowflake
+Here’s a revised README for your GitHub repository, including your specific procedure-calling format and some sample test scenarios:
 
-Introduction
+Dynamic SQL Query Generator for Snowflake
 
-Welcome to the Dynamic SQL Query Generator for JSON in Snowflake! This project enables users to dynamically generate SQL queries for JSON data stored in Snowflake tables. The goal is to simplify the querying process, reduce manual work, and enhance data extraction capabilities by automatically analyzing JSON structures.
-
-Table of Contents
-
-	•	Features
-	•	Getting Started
-	•	Procedure Overview
-	•	Usage Examples
-	•	Contributing
+This repository provides a Snowflake procedure, DYNAMIC_SQL_LARGE, designed to dynamically generate SQL queries from complex JSON data structures. It enables efficient handling of JSON schema, operator compatibility, type casting, and performance optimization for enterprise-scale data processing.
 
 Features
 
-	•	Dynamic SQL Generation: Automatically constructs SQL queries tailored to the JSON structure without hardcoding paths or field names.
-	•	Schema Generation: Analyzes JSON data to generate a comprehensive schema with array path tracking.
-	•	Error Handling: Provides detailed error messages for easier debugging of missing fields or invalid data formats.
-	•	Metadata Support: Optionally includes metadata about fields and their types in the generated SQL queries.
+	•	Dynamic Schema Caching: Speeds up query generation by caching JSON schemas.
+	•	Comprehensive Operator Support: Supports operators like IN, NOT IN, BETWEEN, LIKE, and more.
+	•	Flexible Type Casting: Dynamically casts fields to specified data types.
+	•	Array and Nested Structure Handling: Manages complex JSON structures with deep hierarchies.
+	•	Robust Error Handling: Provides detailed feedback for easy troubleshooting.
 
-Getting Started
+Usage
 
-Prerequisites
+The procedure can be called in the following format:
 
-	1.	Snowflake Account: Ensure you have a Snowflake account with sufficient permissions to create and execute stored procedures.
-	2.	Snowpark Library: This project uses the Snowpark library for Python, so make sure it is available in your environment.
+CALL DYNAMIC_SQL_LARGE('TABLE_NAME', 'COLUMN_NAME', 'FIELD_CONDITIONS');
 
- Procedure Overview
+Example
 
-The DYNAMIC_SQL_QUERY procedure accepts the following parameters:
-
-	•	TABLE_NAME: Name of the table containing the JSON column.
-	•	JSON_COLUMN: Name of the JSON column you wish to query.
-	•	FIELD_NAMES: Comma-separated list of JSON fields to extract.
-	•	INCLUDE_METADATA: Boolean flag to include field metadata in the output.
-
-How It Works
-
-	1.	Fetches sample JSON data from the specified column.
-	2.	Analyzes the JSON structure to create a schema.
-	3.	Dynamically generates SQL queries for the requested fields.
-	4.	Returns the constructed SQL queries as a string.
-
-Usage Examples
-
-Here’s how to call the procedure in Snowflake:
-
-CALL SAINATH.SNOW.DYNAMIC_SQL_QUERY(
-    'your_table_name',
-    'your_json_column',
-    'field1, field2, field3',
-    TRUE
+CALL DYNAMIC_SQL_LARGE(
+    'SAMPLE_TABLE_VARIANT',
+    'DATA',
+    'height[IN:10|30,CAST:INTEGER],month[CAST:TIMESTAMP],product_id[=:P200]'
 );
 
-The procedure will return SQL queries based on the specified fields in the JSON structure.
+In this example:
+	•	height: Filters with IN operator for values 10 and 30, and casts the result as INTEGER.
+	•	month: Casts the field to TIMESTAMP.
+	•	product_id: Filters with the = operator, matching the value P200.
 
-Contributinge
+Sample Test Scenarios
 
-Contributions are welcome! If you have suggestions for improvements or new features, please open an issue or submit a pull request. Ensure your code follows the project’s style guidelines.
+Here are some example scenarios to test the procedure:
+	1.	Simple Filtering and Casting
+
+CALL DYNAMIC_SQL_LARGE(
+    'EMPLOYEE_DATA',
+    'INFO',
+    'salary[>:50000,CAST:INTEGER],start_date[CAST:DATE]'
+);
+
+	•	Filters salary with values greater than 50000, casting it to INTEGER.
+	•	Casts start_date to DATE.
+
+	2.	Using Array Paths
+
+CALL DYNAMIC_SQL_LARGE(
+    'ORDERS_TABLE',
+    'ORDER_DETAILS',
+    'order_ids[IN:101|102|103],status[=:Shipped]'
+);
+
+	•	Filters order_ids for specific values and status for the value Shipped.
+
+	3.	Complex Nested JSON Structures
+
+CALL DYNAMIC_SQL_LARGE(
+    'INVENTORY',
+    'PRODUCT_DETAILS',
+    'dimensions.width[>:15,CAST:FLOAT],tags[LIKE:%Electronic%]'
+);
+
+	•	Filters dimensions.width for values greater than 15, casting it to FLOAT.
+	•	Uses LIKE operator on tags to filter records containing “Electronic”.
+
+	4.	BETWEEN Operator Usage
+
+CALL DYNAMIC_SQL_LARGE(
+    'TRANSACTION_HISTORY',
+    'DATA',
+    'transaction_amount[BETWEEN:1000|5000],date[CAST:DATE]'
+);
+
+	•	Filters transaction_amount for values between 1000 and 5000.
+	•	Casts date to DATE.
+
+Repository Structure
+
+	•	dynamic_sql_large.sql: The main procedure for dynamic SQL generation.
+	•	README.md: Documentation and usage instructions.
+	•	test_cases.sql: Contains sample test cases to validate the procedure functionality.
+
+Contributing
+
+Feel free to test, open issues, and contribute enhancements. For any suggestions or bug reports, please open an issue in the GitHub repository.
+
+This README provides clear instructions, usage examples, and test scenarios to help users quickly understand and apply the dynamic SQL generator. Let me know if there’s anything more you’d like to add!
