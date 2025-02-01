@@ -1,0 +1,29 @@
+def build_array_flattening(array_paths: List[str], json_column: str) -> Tuple[str, Dict[str, str]]:
+    flatten_clauses = []
+    array_aliases = {}
+    
+    # Sort array paths by depth to ensure parent arrays are flattened first
+    sorted_array_paths = sorted(array_paths, key=lambda x: len(x.split('.')))
+    
+    for idx, array_path in enumerate(sorted_array_paths):
+        # Generate a unique alias for each array level
+        alias = f"f{idx + 1}"
+        array_aliases[array_path] = alias
+        
+        # Find the parent array path
+        parent_path = None
+        for p in sorted_array_paths:
+            if array_path.startswith(p + '.') and p != array_path:
+                parent_path = p
+                break
+        
+        if parent_path:
+            # If there is a parent array, use its alias and construct the relative path
+            parent_alias = array_aliases[parent_path]
+            relative_path = array_path[len(parent_path) + 1:]
+            flatten_clauses.append(f", LATERAL FLATTEN(input => {parent_alias}.value:{relative_path}) {alias}")
+        else:
+            # If no parent array, flatten directly from the JSON column
+            flatten_clauses.append(f", LATERAL FLATTEN(input => {json_column}:{array_path}) {alias}")
+    
+    return ''.join(flatten_clauses), array_aliases
