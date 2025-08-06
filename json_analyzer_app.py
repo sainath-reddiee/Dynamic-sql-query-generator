@@ -7,7 +7,7 @@ from datetime import datetime
 
 # Page configuration
 st.set_page_config(
-    page_title="JSON Structure Analyzer",
+    page_title="❄️ Dynamic SQL Generator for Complex Json Data in Snowflake",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -245,7 +245,7 @@ def generate_procedure_examples(schema: Dict[str, Dict]) -> List[str]:
 
 # Main App
 def main():
-    st.markdown('<h1 class="main-header">🔍 JSON Structure Analyzer</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">Dynamic SQL Generator for Complex Json Data in Snowflake</h1>', unsafe_allow_html=True)
     
     st.markdown("""
     <div class="feature-box">
