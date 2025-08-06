@@ -1,86 +1,129 @@
-Dynamic SQL Query Generator for Snowflake
+# JSON Structure Analyzer
 
-Welcome to the Dynamic SQL Query Generator for Snowflake! This procedure, DYNAMIC_SQL_LARGE, empowers Snowflake users to dynamically generate SQL queries from complex JSON data. Designed for enterprise-scale processing, it enables efficient handling of JSON schema, operator compatibility, type casting, and performance optimization.
+A comprehensive Streamlit application for analyzing JSON data structures with support for dynamic SQL procedure parameter generation.
 
-🚀 Features
+## 🚀 Features
 
-	•	Dynamic Schema Caching: Enhances query generation speed by caching JSON schemas.
-	•	Comprehensive Operator Support: Supports operators such as IN, NOT IN, BETWEEN, LIKE, etc.
-	•	Flexible Type Casting: Dynamically casts fields to specified data types.
-	•	Array and Nested Structure Handling: Processes deeply nested JSON with complex hierarchies.
-	•	Robust Error Handling: Offers detailed feedback to streamline troubleshooting.
+### 📥 Input Methods
+- **File Upload**: Upload JSON files directly
+- **Text Input**: Paste JSON data manually into a text area
 
-📘 Usage
+### 🧪 JSON Structure Analytics
+- **Complete JSON Paths**: View all possible paths in your JSON structure
+- **Array Analysis**: Identify arrays that need flattening for database operations
+- **Nested Objects Detection**: Understand data hierarchy and nesting levels
+- **Queryable Fields**: Highlight fields suitable for database queries with type information
 
-Call the procedure in the following format:
+### 🎨 Utility Features
+- **JSON Prettifier**: Format and beautify JSON data instantly
+- **Export Options**: Download analysis results as CSV and formatted JSON
+- **Procedure Examples**: Generate parameter examples based on your data structure
+- **Interactive Interface**: Filter and explore data with an intuitive UI
 
-CALL DYNAMIC_SQL_LARGE('TABLE_NAME', 'COLUMN_NAME', 'FIELD_CONDITIONS');
+## 🛠️ Installation
 
-Example
+1. Install the required dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-CALL DYNAMIC_SQL_LARGE(
-    'SAMPLE_TABLE_VARIANT',
-    'DATA',
-    'height[IN:10|30,CAST:INTEGER],month[CAST:TIMESTAMP],product_id[=:P200]'
-);
+2. Run the Streamlit application:
+```bash
+streamlit run json_analyzer_app.py
+```
 
-Explanation:
-	•	height: Filters with IN for values 10 and 30, casting as INTEGER.
-	•	month: Casts to TIMESTAMP.
-	•	product_id: Filters with the = operator, matching P200.
+3. Open your browser and navigate to `http://localhost:8501`
 
-🔍 Sample Test Scenarios
+## 📋 Usage
 
-1. Simple Filtering and Casting
+### Basic Usage
+1. Choose your input method (File Upload or Text Input)
+2. Provide your JSON data
+3. Explore the different analysis tabs:
+   - **Complete JSON Paths**: See all available paths
+   - **Arrays Analysis**: Understand array structures
+   - **Nested Objects**: Explore object hierarchies
+   - **Queryable Fields**: Find fields suitable for queries
+   - **JSON Prettifier**: Format your JSON
 
-CALL DYNAMIC_SQL_LARGE(
-    'EMPLOYEE_DATA',
-    'INFO',
-    'salary[>:50000,CAST:INTEGER],start_date[CAST:DATE]'
-);
+### Procedure Parameters
+The app generates procedure parameter examples based on your JSON structure:
 
-	•	Filters salary > 50000, casting as INTEGER.
-	•	Casts start_date to DATE.
+- `field_name` - Simple field extraction
+- `field_name[operator:value]` - Field with condition
+- `field_name[CAST:TYPE]` - Type casting
+- `field1, field2` - Multiple fields
+- `field[=:value:OR]` - Custom logic operator
 
-2. Using Array Paths
+**Supported operators**: =, !=, >, <, >=, <=, LIKE, NOT LIKE, IN, NOT IN, BETWEEN, CONTAINS, IS NULL, IS NOT NULL
 
-CALL DYNAMIC_SQL_LARGE(
-    'ORDERS_TABLE',
-    'ORDER_DETAILS',
-    'order_ids[IN:101|102|103],status[=:Shipped]'
-);
+### Example JSON Structure
+```json
+{
+  "user_id": 12345,
+  "name": "John Doe",
+  "profile": {
+    "age": 30,
+    "address": {
+      "city": "New York",
+      "coordinates": {"lat": 40.7128, "lng": -74.0060}
+    }
+  },
+  "orders": [
+    {
+      "order_id": "ORD-001",
+      "items": [
+        {"product_id": "PROD-123", "price": 799.99}
+      ]
+    }
+  ]
+}
+```
 
-	•	Filters order_ids for specific values.
-	•	Filters status for Shipped.
+This would generate paths like:
+- `user_id` (NUMBER)
+- `name` (STRING)
+- `profile.age` (NUMBER)
+- `profile.address.city` (STRING)
+- `orders.order_id` (STRING - in array context)
+- `orders.items.price` (NUMBER - in nested array context)
 
-3. Complex Nested JSON Structures
+## 🔧 Fixed Script
 
-CALL DYNAMIC_SQL_LARGE(
-    'INVENTORY',
-    'PRODUCT_DETAILS',
-    'dimensions.width[>:15,CAST:FLOAT],tags[LIKE:%Electronic%]'
-);
+The `improved_latest_script.py` file contained a syntax error on line 21 that has been fixed:
 
-	•	Filters dimensions.width > 15, casting as FLOAT.
-	•	Uses LIKE on tags to filter for records containing “Electronic”.
+**Before (Error):**
+```python
+value = re.sub(r'[;\\\\x00-\\\\x1f]', '', value)
+```
 
-4. BETWEEN Operator Usage
+**After (Fixed):**
+```python
+value = re.sub(r'[;\x00-\x1f]', '', value)
+```
 
-CALL DYNAMIC_SQL_LARGE(
-    'TRANSACTION_HISTORY',
-    'DATA',
-    'transaction_amount[BETWEEN:1000|5000],date[CAST:DATE]'
-);
+The issue was with double-escaped backslashes in the regex pattern for removing control characters.
 
-	•	Filters transaction_amount between 1000 and 5000.
-	•	Casts date to DATE.
+## 📁 Files
 
-📁 Repository Structure
+- `json_analyzer_app.py` - Main Streamlit application
+- `improved_latest_script.py` - Fixed Snowflake procedure script
+- `requirements.txt` - Python dependencies
+- `sample_data.json` - Example JSON data for testing
+- `README.md` - This documentation
 
-	•	dynamic_sql_large.sql: Contains the main procedure for dynamic SQL generation.
-	•	README.md: Documentation and usage instructions.
-	•	test_cases.sql: Sample test cases to validate the procedure’s functionality.
+## 🎯 Use Cases
 
-🤝 Contributing
+1. **Database Schema Design**: Understand JSON structure before creating tables
+2. **ETL Pipeline Planning**: Identify arrays and nested objects for flattening strategies
+3. **API Data Analysis**: Explore complex JSON responses from APIs
+4. **Data Migration**: Plan field mappings between JSON and relational databases
+5. **Query Development**: Generate procedure parameters for dynamic SQL operations
 
-We welcome contributions! Feel free to test the code, open issues, and suggest enhancements. For questions or bug reports, please create an issue in this repository.
+## 🤝 Contributing
+
+Feel free to submit issues and enhancement requests!
+
+## 📝 License
+
+This project is open source and available under the MIT License.
