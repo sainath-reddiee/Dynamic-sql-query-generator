@@ -18,7 +18,7 @@ def sanitize_input(value: str) -> str:
     # More comprehensive sanitization
     value = value.replace("'", "''").replace('"', '""')
     # Remove potential SQL injection patterns
-    value = re.sub(r'[;\\\\x00-\\\\x1f]', '', value)
+    value = re.sub(r'[;\x00-\x1f]', '', value)
     return value
 
 def get_snowflake_type(python_type: str) -> str:

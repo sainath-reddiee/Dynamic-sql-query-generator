@@ -1,0 +1,98 @@
+{
+  "user_id": 12345,
+  "name": "John Doe",
+  "email": "john.doe@example.com",
+  "active": true,
+  "profile": {
+    "age": 30,
+    "address": {
+      "street": "123 Main St",
+      "city": "New York",
+      "zipcode": "10001",
+      "coordinates": {
+        "lat": 40.7128,
+        "lng": -74.0060
+      }
+    },
+    "preferences": {
+      "theme": "dark",
+      "notifications": true,
+      "language": "en"
+    }
+  },
+  "orders": [
+    {
+      "order_id": "ORD-001",
+      "date": "2024-01-15",
+      "total": 99.99,
+      "status": "delivered",
+      "items": [
+        {
+          "product_id": "PROD-123",
+          "name": "Laptop",
+          "price": 799.99,
+          "quantity": 1,
+          "categories": ["electronics", "computers"]
+        },
+        {
+          "product_id": "PROD-456",
+          "name": "Mouse",
+          "price": 29.99,
+          "quantity": 2,
+          "categories": ["electronics", "accessories"]
+        }
+      ],
+      "shipping": {
+        "method": "express",
+        "tracking": "TRK123456789",
+        "estimated_delivery": "2024-01-18"
+      }
+    },
+    {
+      "order_id": "ORD-002",
+      "date": "2024-02-01",
+      "total": 45.50,
+      "status": "processing",
+      "items": [
+        {
+          "product_id": "PROD-789",
+          "name": "Book",
+          "price": 15.99,
+          "quantity": 1,
+          "categories": ["books", "education"]
+        },
+        {
+          "product_id": "PROD-101",
+          "name": "Pen Set",
+          "price": 29.51,
+          "quantity": 1,
+          "categories": ["office", "writing"]
+        }
+      ],
+      "shipping": {
+        "method": "standard",
+        "tracking": null,
+        "estimated_delivery": "2024-02-05"
+      }
+    }
+  ],
+  "tags": ["premium", "tech-enthusiast", "frequent-buyer"],
+  "metadata": {
+    "created_at": "2023-06-15T10:30:00Z",
+    "last_login": "2024-01-20T14:22:33Z",
+    "login_count": 245,
+    "referral_code": null
+  },
+  "settings": {
+    "privacy": {
+      "data_sharing": false,
+      "analytics": true,
+      "marketing_emails": true
+    },
+    "display": {
+      "currency": "USD",
+      "timezone": "America/New_York",
+      "date_format": "MM/DD/YYYY"
+    }
+  }
+}
