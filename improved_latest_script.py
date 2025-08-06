@@ -5,7 +5,7 @@ RUNTIME_VERSION = '3.8'
 PACKAGES = ('snowflake-snowpark-python')
 HANDLER = 'dynamic_sql_generator'
 EXECUTE AS OWNER
-AS '
+AS $$
 import json
 from typing import Dict, Any, List, Tuple, Optional, Set
 import time
@@ -17,7 +17,7 @@ def sanitize_input(value: str) -> str:
         return str(value)
     # More comprehensive sanitization
     value = value.replace("'", "''").replace('"', '""')
-    # Remove potential SQL injection patterns
+    # Remove potential SQL injection patterns - fixed regex
     value = re.sub(r'[;\x00-\x1f]', '', value)
     return value
 
@@ -578,4 +578,4 @@ def dynamic_sql_generator(session, table_name: str, json_column: str, field_cond
         return f"""-- Error in dynamic SQL generation
 -- Error message: {str(e)}
 -- Please verify your inputs and try again;"""
-';
+$$;
