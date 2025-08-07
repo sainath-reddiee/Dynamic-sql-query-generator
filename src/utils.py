@@ -29,7 +29,7 @@ def get_snowflake_type(python_type: str) -> str:
 
 def _get_is_in_array(details: Dict) -> bool:
     """Helper function to safely get the 'is in array' flag from details dict"""
-    # Try multiple possible key names to be robust
+    # Try multiple possible key names to be robust - prioritize the main one
     return (details.get('is_array_item', False) or 
             details.get('in_array', False) or 
             details.get('is_in_array', False))
@@ -47,7 +47,8 @@ def find_arrays(schema: Dict[str, Dict]) -> List[Dict]:
                 'depth': details.get('depth', 0),
                 'length': details.get('array_length', 0),
                 'item_type': details.get('item_type', 'unknown'),
-                'is_in_array': _get_is_in_array(details),
+                'is_array_item': _get_is_in_array(details),  # Use consistent key name
+                'is_in_array': _get_is_in_array(details),   # Backward compatibility
                 'parent_arrays': details.get('array_hierarchy', [])
             })
     return sorted(arrays, key=lambda x: x['depth'])
@@ -63,7 +64,8 @@ def find_nested_objects(schema: Dict[str, Dict]) -> List[Dict]:
                 'full_path': details.get('full_path', path),
                 'array_hierarchy': details.get('array_hierarchy', []),
                 'depth': details.get('depth', 0),
-                'is_in_array': _get_is_in_array(details),
+                'is_array_item': _get_is_in_array(details),  # Use consistent key name
+                'is_in_array': _get_is_in_array(details),   # Backward compatibility
                 'parent_arrays': details.get('array_hierarchy', [])
             })
     return sorted(nested_objects, key=lambda x: x['depth'])
@@ -80,7 +82,8 @@ def find_queryable_fields(schema: Dict[str, Dict]) -> List[Dict]:
                 'snowflake_type': details.get('snowflake_type', 'VARIANT'),
                 'array_hierarchy': details.get('array_hierarchy', []),
                 'depth': details.get('depth', 0),
-                'in_array': details.get('is_array_item', False),  # Add missing in_array field
+                'is_array_item': _get_is_in_array(details),  # Use consistent key name
+                'in_array': _get_is_in_array(details),       # Backward compatibility
                 'sample_value': details.get('sample_value', 'N/A')
             })
     return sorted(queryable_fields, key=lambda x: (x['depth'], x['path']))
