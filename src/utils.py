@@ -39,6 +39,7 @@ def find_arrays(schema: Dict[str, Dict]) -> List[Dict]:
                 'depth': details['depth'],
                 'length': details.get('array_length', 0),  # Fix for the length error
                 'item_type': details.get('item_type', 'unknown'),  # Add item_type
+                'is_in_array': details.get('is_array_item', False),  # Fix for is_in_array error
                 'parent_arrays': details['array_hierarchy']  # Add parent_arrays mapping
             })
     return sorted(arrays, key=lambda x: x['depth'])
