@@ -44,6 +44,7 @@ def find_arrays(schema: Dict[str, Dict]) -> List[Dict]:
                 'path': path,
                 'full_path': details.get('full_path', path),
                 'array_hierarchy': details.get('array_hierarchy', []),
+                'array_context': details.get('array_context', None),  # Add missing array_context
                 'depth': details.get('depth', 0),
                 'length': details.get('array_length', 0),
                 'item_type': details.get('item_type', 'unknown'),
@@ -63,6 +64,7 @@ def find_nested_objects(schema: Dict[str, Dict]) -> List[Dict]:
                 'path': path,
                 'full_path': details.get('full_path', path),
                 'array_hierarchy': details.get('array_hierarchy', []),
+                'array_context': details.get('array_context', None),  # Add missing array_context
                 'depth': details.get('depth', 0),
                 'is_array_item': _get_is_in_array(details),  # Use consistent key name
                 'is_in_array': _get_is_in_array(details),   # Backward compatibility
@@ -81,6 +83,7 @@ def find_queryable_fields(schema: Dict[str, Dict]) -> List[Dict]:
                 'type': details.get('type', 'unknown'),
                 'snowflake_type': details.get('snowflake_type', 'VARIANT'),
                 'array_hierarchy': details.get('array_hierarchy', []),
+                'array_context': details.get('array_context', None),  # Add missing array_context
                 'depth': details.get('depth', 0),
                 'is_array_item': _get_is_in_array(details),  # Use consistent key name
                 'in_array': _get_is_in_array(details),       # Backward compatibility
