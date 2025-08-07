@@ -27,21 +27,28 @@ def get_snowflake_type(python_type: str) -> str:
     return type_mapping.get(python_type, 'VARIANT')
 
 
+def _get_is_in_array(details: Dict) -> bool:
+    """Helper function to safely get the 'is in array' flag from details dict"""
+    # Try multiple possible key names to be robust
+    return (details.get('is_array_item', False) or 
+            details.get('in_array', False) or 
+            details.get('is_in_array', False))
+
+
 def find_arrays(schema: Dict[str, Dict]) -> List[Dict]:
     """Find all array fields in the schema"""
     arrays = []
     for path, details in schema.items():
-        if details['type'] == 'list':
+        if details.get('type') == 'list':
             arrays.append({
                 'path': path,
-                'full_path': details['full_path'],
-                'array_hierarchy': details['array_hierarchy'],
-                'depth': details['depth'],
+                'full_path': details.get('full_path', path),
+                'array_hierarchy': details.get('array_hierarchy', []),
+                'depth': details.get('depth', 0),
                 'length': details.get('array_length', 0),
                 'item_type': details.get('item_type', 'unknown'),
-                # Fix: Use 'in_array' instead of 'is_array_item'
-                'is_in_array': details.get('in_array', False),
-                'parent_arrays': details['array_hierarchy']
+                'is_in_array': _get_is_in_array(details),
+                'parent_arrays': details.get('array_hierarchy', [])
             })
     return sorted(arrays, key=lambda x: x['depth'])
 
@@ -50,15 +57,14 @@ def find_nested_objects(schema: Dict[str, Dict]) -> List[Dict]:
     """Find all nested object fields in the schema"""
     nested_objects = []
     for path, details in schema.items():
-        if details['is_nested_object']:
+        if details.get('is_nested_object', False):
             nested_objects.append({
                 'path': path,
-                'full_path': details['full_path'],
-                'array_hierarchy': details['array_hierarchy'],
-                'depth': details['depth'],
-                # Fix: Use 'in_array' instead of 'is_array_item'
-                'is_in_array': details.get('in_array', False),
-                'parent_arrays': details['array_hierarchy']
+                'full_path': details.get('full_path', path),
+                'array_hierarchy': details.get('array_hierarchy', []),
+                'depth': details.get('depth', 0),
+                'is_in_array': _get_is_in_array(details),
+                'parent_arrays': details.get('array_hierarchy', [])
             })
     return sorted(nested_objects, key=lambda x: x['depth'])
 
@@ -67,13 +73,13 @@ def find_queryable_fields(schema: Dict[str, Dict]) -> List[Dict]:
     """Find all queryable (leaf) fields in the schema"""
     queryable_fields = []
     for path, details in schema.items():
-        if details['is_queryable']:
+        if details.get('is_queryable', False):
             queryable_fields.append({
                 'path': path,
-                'type': details['type'],
-                'snowflake_type': details['snowflake_type'],
-                'array_hierarchy': details['array_hierarchy'],
-                'depth': details['depth'],
+                'type': details.get('type', 'unknown'),
+                'snowflake_type': details.get('snowflake_type', 'VARIANT'),
+                'array_hierarchy': details.get('array_hierarchy', []),
+                'depth': details.get('depth', 0),
                 'sample_value': details.get('sample_value', 'N/A')
             })
     return sorted(queryable_fields, key=lambda x: (x['depth'], x['path']))
@@ -107,12 +113,11 @@ def export_analysis_results(schema: Dict[str, Dict]) -> Dict[str, pd.DataFrame]:
     for path, details in schema.items():
         all_paths_data.append({
             'Path': path,
-            'Type': details['type'],
-            'Snowflake Type': details['snowflake_type'],
-            'Depth': details['depth'],
-            'Is Queryable': details['is_queryable'],
-            # Fix: Use 'in_array' instead of 'is_array_item'
-            'Is Array Item': details.get('in_array', False),
+            'Type': details.get('type', 'unknown'),
+            'Snowflake Type': details.get('snowflake_type', 'VARIANT'),
+            'Depth': details.get('depth', 0),
+            'Is Queryable': details.get('is_queryable', False),
+            'Is Array Item': _get_is_in_array(details),
             'Sample Value': details.get('sample_value', 'N/A')
         })
     results['all_paths'] = pd.DataFrame(all_paths_data)
