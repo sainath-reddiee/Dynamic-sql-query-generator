@@ -375,7 +375,7 @@ def generate_sql_enhanced(table_name: str, json_column: str, field_conditions: L
     """Enhanced SQL generation with better safety and correctness."""
     select_parts = []
     where_conditions = []
-    field_where_conditions = {}
+    field_where_conditions = []
     all_array_paths = set()
     field_paths_map = {}
     
@@ -395,18 +395,15 @@ def generate_sql_enhanced(table_name: str, json_column: str, field_conditions: L
     for condition in field_conditions:
         field = condition['field']
         matching_paths = field_paths_map[field]
-        field_conditions_list = []
         
-        for idx, (full_path, array_hierarchy, field_info) in enumerate(matching_paths):
+        # Use the first (best) match for each field
+        if matching_paths:
+            full_path, array_hierarchy, field_info = matching_paths[0]
             field_type = get_snowflake_type(field_info['type'])
             value_path = build_field_path_enhanced(full_path, json_column, array_aliases, array_hierarchy)
             
-            # Enhanced alias generation
-            if len(matching_paths) > 1:
-                context = field_info.get('parent_path', '').replace('.', '_')
-                alias = f"{field}_{context}_{idx + 1}" if context else f"{field}_{idx + 1}"
-            else:
-                alias = field
+            # Generate clean alias
+            alias = field.replace('.', '_')
             
             # Apply casting if specified
             if condition['cast']:
@@ -420,7 +417,7 @@ def generate_sql_enhanced(table_name: str, json_column: str, field_conditions: L
             select_parts.append(f"{cast_expr} as {alias}")
             
             # Build WHERE conditions
-            if condition['operator'] != 'IS NOT NULL':
+            if condition['operator'] and condition['operator'] != 'IS NOT NULL':
                 operator = condition['operator'].upper()
                 if not validate_operator(operator, field_type):
                     raise ValueError(f"Invalid operator '{operator}' for field type '{field_type}'")
@@ -429,7 +426,7 @@ def generate_sql_enhanced(table_name: str, json_column: str, field_conditions: L
                     start_val = sanitize_value(condition['value'][0], field_type)
                     end_val = sanitize_value(condition['value'][1], field_type)
                     where_clause = f"{cast_expr} BETWEEN {start_val} AND {end_val}"
-                else:
+                elif condition['value'] is not None:
                     sanitized_value = sanitize_value(condition['value'], field_type)
                     
                     # Special handling for string operations
@@ -437,40 +434,33 @@ def generate_sql_enhanced(table_name: str, json_column: str, field_conditions: L
                         cast_expr = f"CAST({value_path} AS STRING)"
                     
                     where_clause = f"{cast_expr} {operator} {sanitized_value}"
+                else:
+                    where_clause = f"{cast_expr} {operator}"
                 
-                field_conditions_list.append(where_clause)
-        
-        # Group conditions for the same field
-        if field_conditions_list:
-            if len(field_conditions_list) > 1:
-                grouped_condition = f"({' OR '.join(field_conditions_list)})"
-            else:
-                grouped_condition = field_conditions_list[0]
-                
-            if field not in field_where_conditions:
-                field_where_conditions[field] = {
-                    'condition': grouped_condition,
-                    'logic_operator': condition['logic_operator']
-                }
+                field_where_conditions.append({
+                    'condition': where_clause,
+                    'logic_operator': condition.get('logic_operator', 'AND')
+                })
     
     # Build final WHERE clause
-    first_condition = True
-    for field, condition_info in field_where_conditions.items():
-        if first_condition:
-            where_conditions.append(condition_info['condition'])
-            first_condition = False
-        else:
+    if field_where_conditions:
+        where_conditions.append(field_where_conditions[0]['condition'])
+        for condition_info in field_where_conditions[1:]:
             where_conditions.append(f"{condition_info['logic_operator']} {condition_info['condition']}")
     
-    # Build final SQL - Fixed spacing issue
+    # Build final unified SQL
     safe_table_name = sanitize_input(table_name)
+    
+    if not select_parts:
+        return "-- No valid fields found for selection;"
+    
     sql = f"SELECT {', '.join(select_parts)}\\nFROM {safe_table_name}"
     
     if flatten_clauses:
         sql += flatten_clauses
     
     if where_conditions:
-        sql += f"\\nWHERE {' '.join(where_conditions)}"  # Fixed: added space
+        sql += f"\\nWHERE {' '.join(where_conditions)}"
     
     return sql + ";"
 
