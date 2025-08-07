@@ -72,6 +72,7 @@ def find_queryable_fields(schema: Dict[str, Dict]) -> List[Dict]:
                 'snowflake_type': details['snowflake_type'],
                 'array_hierarchy': details['array_hierarchy'],
                 'depth': details['depth'],
+                'in_array': details.get('is_array_item', False),  # Add missing in_array field
                 'sample_value': details.get('sample_value', 'N/A')
             })
     return sorted(queryable_fields, key=lambda x: (x['depth'], x['path']))
