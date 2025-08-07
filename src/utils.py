@@ -109,7 +109,7 @@ def export_analysis_results(schema: Dict[str, Dict]) -> Dict[str, pd.DataFrame]:
             'Snowflake Type': details['snowflake_type'],
             'Depth': details['depth'],
             'Is Queryable': details['is_queryable'],
-            'Is Array Item': details['is_array_item'],
+            'Is Array Item': details.get('is_array_item', False),
             'Sample Value': details.get('sample_value', 'N/A')
         })
     results['all_paths'] = pd.DataFrame(all_paths_data)
