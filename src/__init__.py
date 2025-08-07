@@ -1,0 +1,1 @@
+# JSON to SQL Analyzer for Snowflake

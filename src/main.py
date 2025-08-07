@@ -7,13 +7,24 @@ from datetime import datetime
 import logging
 import os
 
+# Import from our modules
+from json_analyzer import analyze_json_structure
+from utils import (
+    get_snowflake_type, find_arrays, find_nested_objects, 
+    find_queryable_fields, prettify_json, validate_json_input, 
+    export_analysis_results
+)
+from sql_generator import generate_procedure_examples, generate_sql_preview
+
+# Import configuration
+from config import config
+
 # Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Page configuration
 st.set_page_config(
-    page_title="❄️ JSON-to-SQL Analyzer for Snowflake",
+    page_title=f"❄️ {config.APP_NAME}",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -114,273 +125,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-@st.cache_data(ttl=3600)
-def analyze_json_structure(json_obj: Any, parent_path: str = "", max_depth: int = 20) -> Dict[str, Dict]:
-    """
-    Analyze JSON structure and return comprehensive metadata with caching
-    """
-    schema = {}
-    
-    def traverse_json(obj: Any, path: str = "", array_hierarchy: List[str] = [], depth: int = 0):
-        if depth > max_depth:
-            return
-            
-        if isinstance(obj, dict):
-            for key, value in obj.items():
-                new_path = f"{path}.{key}" if path else key
-                current_type = type(value).__name__
-                
-                # Determine if this is queryable (leaf node or simple type)
-                is_queryable = not isinstance(value, (dict, list)) or (
-                    isinstance(value, list) and len(value) > 0 and not isinstance(value[0], (dict, list))
-                )
-                
-                schema_entry = {
-                    "type": current_type,
-                    "snowflake_type": get_snowflake_type(current_type),
-                    "array_hierarchy": array_hierarchy.copy(),
-                    "depth": len(new_path.split('.')),
-                    "full_path": new_path,
-                    "parent_path": path,
-                    "is_array_item": len(array_hierarchy) > 0,
-                    "is_nested_object": isinstance(value, dict),
-                    "is_queryable": is_queryable,
-                    "sample_value": str(value)[:100] + "..." if len(str(value)) > 100 else str(value)
-                }
-                
-                # Handle type conflicts
-                if new_path in schema:
-                    existing_type = schema[new_path]["type"]
-                    if existing_type != current_type:
-                        if current_type in ['str', 'int', 'float'] and existing_type == 'NoneType':
-                            schema[new_path]["type"] = current_type
-                            schema[new_path]["snowflake_type"] = get_snowflake_type(current_type)
-                        elif existing_type in ['str', 'int', 'float'] and current_type == 'NoneType':
-                            pass  # Keep existing
-                        else:
-                            schema[new_path]["type"] = "variant"
-                            schema[new_path]["snowflake_type"] = "VARIANT"
-                else:
-                    schema[new_path] = schema_entry
-                
-                traverse_json(value, new_path, array_hierarchy, depth + 1)
-                
-        elif isinstance(obj, list) and obj:
-            if path:
-                schema[path] = {
-                    "type": "list",
-                    "snowflake_type": "ARRAY",
-                    "array_hierarchy": array_hierarchy.copy(),
-                    "depth": len(path.split('.')) if path else 0,
-                    "full_path": path,
-                    "parent_path": ".".join(path.split('.')[:-1]) if '.' in path else "",
-                    "is_array_item": len(array_hierarchy) > 0,
-                    "is_nested_object": False,
-                    "is_queryable": True,
-                    "sample_value": f"Array with {len(obj)} items",
-                    "array_length": len(obj)
-                }
-            
-            new_hierarchy = array_hierarchy + ([path] if path else [])
-            
-            # Analyze multiple array elements for better coverage
-            sample_size = min(len(obj), 3)
-            for i in range(sample_size):
-                if isinstance(obj[i], (dict, list)):
-                    traverse_json(obj[i], path, new_hierarchy, depth + 1)
-                else:
-                    # For primitive arrays, update schema info
-                    if path in schema:
-                        schema[path]["item_type"] = type(obj[i]).__name__
-                        schema[path]["item_snowflake_type"] = get_snowflake_type(type(obj[i]).__name__)
-                
-    try:
-        traverse_json(json_obj, parent_path)
-        logger.info(f"Successfully analyzed JSON structure with {len(schema)} paths")
-        return schema
-    except Exception as e:
-        logger.error(f"Error analyzing JSON structure: {str(e)}")
-        st.error(f"Error analyzing JSON structure: {str(e)}")
-        return {}
-
-def get_snowflake_type(python_type: str) -> str:
-    """Map Python types to Snowflake types"""
-    type_mapping = {
-        'str': 'STRING',
-        'int': 'NUMBER',
-        'float': 'NUMBER',
-        'bool': 'BOOLEAN',
-        'datetime': 'TIMESTAMP',
-        'date': 'DATE',
-        'dict': 'VARIANT',
-        'list': 'ARRAY',
-        'NoneType': 'VARIANT',
-        'variant': 'VARIANT'
-    }
-    return type_mapping.get(python_type, 'VARIANT')
-
-def find_arrays(schema: Dict[str, Dict]) -> List[Dict]:
-    """Find all arrays in the schema"""
-    arrays = []
-    for path, info in schema.items():
-        if info['type'] == 'list':
-            arrays.append({
-                'path': path,
-                'depth': info['depth'],
-                'length': info.get('array_length', 'Unknown'),
-                'item_type': info.get('item_type', 'Mixed'),
-                'parent_arrays': info['array_hierarchy']
-            })
-    return sorted(arrays, key=lambda x: x['depth'])
-
-def find_nested_objects(schema: Dict[str, Dict]) -> List[Dict]:
-    """Find all nested objects in the schema"""
-    nested_objects = []
-    for path, info in schema.items():
-        if info['is_nested_object']:
-            nested_objects.append({
-                'path': path,
-                'depth': info['depth'],
-                'parent_arrays': info['array_hierarchy'],
-                'is_in_array': len(info['array_hierarchy']) > 0
-            })
-    return sorted(nested_objects, key=lambda x: x['depth'])
-
-def find_queryable_fields(schema: Dict[str, Dict]) -> List[Dict]:
-    """Find all queryable fields"""
-    queryable = []
-    for path, info in schema.items():
-        if info['is_queryable'] and info['type'] != 'list':
-            queryable.append({
-                'path': path,
-                'type': info['type'],
-                'snowflake_type': info['snowflake_type'],
-                'depth': info['depth'],
-                'sample_value': info['sample_value'],
-                'in_array': len(info['array_hierarchy']) > 0,
-                'array_context': info['array_hierarchy']
-            })
-    return sorted(queryable, key=lambda x: (x['depth'], x['path']))
-
-def prettify_json(json_str: str) -> str:
-    """Prettify JSON string with error handling"""
-    try:
-        if isinstance(json_str, (dict, list)):
-            return json.dumps(json_str, indent=2, ensure_ascii=False)
-        parsed = json.loads(json_str)
-        return json.dumps(parsed, indent=2, ensure_ascii=False)
-    except json.JSONDecodeError as e:
-        return f"Invalid JSON: {str(e)}"
-    except Exception as e:
-        return f"Error formatting JSON: {str(e)}"
-
-def generate_procedure_examples(schema: Dict[str, Dict]) -> List[str]:
-    """Generate example procedure calls based on the schema"""
-    examples = []
-    queryable_fields = find_queryable_fields(schema)
-    
-    if queryable_fields:
-        # Simple field example
-        simple_field = next((f for f in queryable_fields if not f['in_array']), queryable_fields[0])
-        examples.append(f"{simple_field['path']}")
-        
-        # Conditional example
-        if simple_field['type'] in ['str']:
-            examples.append(f"{simple_field['path']}[=:value]")
-        elif simple_field['type'] in ['int', 'float']:
-            examples.append(f"{simple_field['path']}[>:100]")
-        
-        # Multiple fields example
-        if len(queryable_fields) > 1:
-            field1 = queryable_fields[0]['path']
-            field2 = queryable_fields[1]['path']
-            examples.append(f"{field1}, {field2}")
-        
-        # Cast example
-        examples.append(f"{simple_field['path']}[CAST:STRING]")
-        
-        # Complex example with operators
-        if len(queryable_fields) > 2:
-            examples.append(f"{queryable_fields[0]['path']}[=:value1], {queryable_fields[1]['path']}[>:100:OR]")
-    
-    return examples
-
-def generate_sql_preview(schema: Dict[str, Dict], field_conditions: str) -> str:
-    """Generate a preview of what the SQL might look like"""
-    if not field_conditions or not schema:
-        return "-- Please provide field conditions to generate SQL preview"
-    
-    try:
-        # Parse simple field conditions for preview
-        fields = [f.strip() for f in field_conditions.split(',')]
-        select_parts = []
-        
-        for field in fields:
-            # Handle simple field extraction for preview
-            if '[' in field and ']' in field:
-                base_field = field[:field.index('[')].strip()
-                select_parts.append(f"json_column:{base_field} as {base_field}")
-            else:
-                select_parts.append(f"json_column:{field} as {field}")
-        
-        sql_preview = f"""-- SQL Preview (use actual Snowflake procedure for full functionality)
-SELECT {', '.join(select_parts)}
-FROM your_table_name
-WHERE json_column IS NOT NULL;"""
-        
-        return sql_preview
-    except Exception as e:
-        return f"-- Error generating SQL preview: {str(e)}"
-
-def validate_json_input(json_text: str) -> Tuple[bool, str, Any]:
-    """Validate JSON input and return parsed data"""
-    if not json_text.strip():
-        return False, "JSON input is empty", None
-    
-    try:
-        json_data = json.loads(json_text)
-        return True, "Valid JSON", json_data
-    except json.JSONDecodeError as e:
-        return False, f"Invalid JSON: {str(e)}", None
-    except Exception as e:
-        return False, f"Error parsing JSON: {str(e)}", None
-
-def export_analysis_results(schema: Dict[str, Dict]) -> Dict[str, pd.DataFrame]:
-    """Export analysis results to different formats"""
-    results = {}
-    
-    # Complete paths
-    if schema:
-        paths_data = []
-        for path, info in schema.items():
-            paths_data.append({
-                'Path': path,
-                'Type': info['type'],
-                'Snowflake Type': info['snowflake_type'],
-                'Depth': info['depth'],
-                'In Array': info['is_array_item'],
-                'Queryable': info['is_queryable'],
-                'Sample Value': info['sample_value']
-            })
-        results['complete_paths'] = pd.DataFrame(paths_data)
-    
-    # Arrays
-    arrays = find_arrays(schema)
-    if arrays:
-        results['arrays'] = pd.DataFrame(arrays)
-    
-    # Nested objects
-    nested_objects = find_nested_objects(schema)
-    if nested_objects:
-        results['nested_objects'] = pd.DataFrame(nested_objects)
-    
-    # Queryable fields
-    queryable_fields = find_queryable_fields(schema)
-    if queryable_fields:
-        results['queryable_fields'] = pd.DataFrame(queryable_fields)
-    
-    return results
 
 # Main App
 def main():

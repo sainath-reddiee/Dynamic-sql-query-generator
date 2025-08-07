@@ -11,10 +11,22 @@ headless = true
 enableCORS = false
 port = 8501
 maxUploadSize = 200
+enableStaticServing = true
+enableXsrfProtection = true
+maxMessageSize = 200
 
 [browser]
 gatherUsageStats = false
+serverAddress = "0.0.0.0"
 
 [client]
 caching = true
 displayEnabled = true
+showErrorDetails = false
+
+[logger]
+level = "info"
+enableLogging = true
+
+[global]
+developmentMode = false
