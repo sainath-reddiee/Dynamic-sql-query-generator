@@ -37,10 +37,11 @@ def find_arrays(schema: Dict[str, Dict]) -> List[Dict]:
                 'full_path': details['full_path'],
                 'array_hierarchy': details['array_hierarchy'],
                 'depth': details['depth'],
-                'length': details.get('array_length', 0),  # Fix for the length error
-                'item_type': details.get('item_type', 'unknown'),  # Add item_type
-                'is_in_array': details.get('is_array_item', False),  # Fix for is_in_array error
-                'parent_arrays': details['array_hierarchy']  # Add parent_arrays mapping
+                'length': details.get('array_length', 0),
+                'item_type': details.get('item_type', 'unknown'),
+                # Fix: Use 'in_array' instead of 'is_array_item'
+                'is_in_array': details.get('in_array', False),
+                'parent_arrays': details['array_hierarchy']
             })
     return sorted(arrays, key=lambda x: x['depth'])
 
@@ -55,7 +56,8 @@ def find_nested_objects(schema: Dict[str, Dict]) -> List[Dict]:
                 'full_path': details['full_path'],
                 'array_hierarchy': details['array_hierarchy'],
                 'depth': details['depth'],
-                'is_in_array': details.get('is_array_item', False),
+                # Fix: Use 'in_array' instead of 'is_array_item'
+                'is_in_array': details.get('in_array', False),
                 'parent_arrays': details['array_hierarchy']
             })
     return sorted(nested_objects, key=lambda x: x['depth'])
@@ -109,7 +111,8 @@ def export_analysis_results(schema: Dict[str, Dict]) -> Dict[str, pd.DataFrame]:
             'Snowflake Type': details['snowflake_type'],
             'Depth': details['depth'],
             'Is Queryable': details['is_queryable'],
-            'Is Array Item': details.get('is_array_item', False),
+            # Fix: Use 'in_array' instead of 'is_array_item'
+            'Is Array Item': details.get('in_array', False),
             'Sample Value': details.get('sample_value', 'N/A')
         })
     results['all_paths'] = pd.DataFrame(all_paths_data)
