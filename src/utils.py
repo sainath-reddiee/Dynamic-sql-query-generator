@@ -54,7 +54,9 @@ def find_nested_objects(schema: Dict[str, Dict]) -> List[Dict]:
                 'path': path,
                 'full_path': details['full_path'],
                 'array_hierarchy': details['array_hierarchy'],
-                'depth': details['depth']
+                'depth': details['depth'],
+                'is_in_array': details.get('is_array_item', False),
+                'parent_arrays': details['array_hierarchy']
             })
     return sorted(nested_objects, key=lambda x: x['depth'])
 
