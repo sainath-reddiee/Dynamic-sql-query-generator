@@ -44,6 +44,7 @@ def analyze_json_structure(json_obj: Any, parent_path: str = "", max_depth: int 
                     # Use consistent key name across all files
                     "is_array_item": len(array_hierarchy) > 0,
                     "in_array": len(array_hierarchy) > 0,  # Keep both for backward compatibility
+                    "array_context": array_hierarchy[-1] if array_hierarchy else None,  # Add missing array_context
                     "is_nested_object": isinstance(value, dict),
                     "is_queryable": is_queryable,
                     "sample_value": str(value)[:100] + "..." if len(str(value)) > 100 else str(value)
@@ -78,6 +79,7 @@ def analyze_json_structure(json_obj: Any, parent_path: str = "", max_depth: int 
                     # Use consistent key name across all files
                     "is_array_item": len(array_hierarchy) > 0,
                     "in_array": len(array_hierarchy) > 0,  # Keep both for backward compatibility
+                    "array_context": array_hierarchy[-1] if array_hierarchy else None,  # Add missing array_context
                     "is_nested_object": False,
                     "is_queryable": True,
                     "sample_value": f"Array with {len(obj)} items",
