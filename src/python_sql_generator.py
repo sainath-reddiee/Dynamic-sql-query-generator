@@ -380,13 +380,13 @@ class PythonSQLGenerator:
                 return "-- No valid fields found for selection. Please check your field names against the JSON structure."
             
             sql = f"SELECT {', '.join(select_parts)}"
-            sql += f"\\nFROM {safe_table_name}"
+            sql += f"\nFROM {safe_table_name}"
             
             if flatten_clauses:
                 sql += flatten_clauses
             
             if where_conditions:
-                sql += f"\\nWHERE {' '.join(where_conditions)}"
+                sql += f"\nWHERE {' '.join(where_conditions)}"
             
             return sql + ";"
             
