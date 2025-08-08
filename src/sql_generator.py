@@ -16,18 +16,18 @@ def generate_procedure_examples(schema: Dict[str, Dict]) -> List[str]:
                    if details['is_queryable'] and details['depth'] <= 2][:3]
     if basic_fields:
         field_conditions = " AND ".join([f"{field} IS NOT NULL" for field in basic_fields])
-        examples.append(f"CALL DYNAMIC_SQL_LARGE('your_table', 'json_column', '{field_conditions}');")
+        examples.append(f"CALL DYNAMIC_SQL_LARGE_IMPROVED('your_table', 'json_column', '{field_conditions}');")
     
     # Example 2: Array filtering
     arrays = [path for path, details in schema.items() if details['type'] == 'list'][:2]
     if arrays:
         array_conditions = " AND ".join([f"{array}_item IS NOT NULL" for array in arrays])
-        examples.append(f"CALL DYNAMIC_SQL_LARGE('your_table', 'json_column', '{array_conditions}');")
+        examples.append(f"CALL DYNAMIC_SQL_LARGE_IMPROVED('your_table', 'json_column', '{array_conditions}');")
     
     # Example 3: Complex filtering
     if len(basic_fields) > 1:
         complex_condition = f"{basic_fields[0]} = 'value1' AND {basic_fields[1]} > 100"
-        examples.append(f"CALL DYNAMIC_SQL_LARGE('your_table', 'json_column', '{complex_condition}');")
+        examples.append(f"CALL DYNAMIC_SQL_LARGE_IMPROVED('your_table', 'json_column', '{complex_condition}');")
     
     return examples
 
