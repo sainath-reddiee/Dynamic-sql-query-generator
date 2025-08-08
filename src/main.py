@@ -501,7 +501,7 @@ def main():
                 col1, col2 = st.columns([1, 1])
                 
                 with col1:
-                    st.subheader("🧪 Procedure Parameters")
+                    st.subheader("🧪 Query Parameters")
                     
                     # Input for table and column names
                     table_name = st.text_input(
@@ -516,62 +516,107 @@ def main():
                         help="Name of the column containing JSON data"
                     )
                     
-                    procedures_input = st.text_area(
+                    field_conditions = st.text_area(
                         "Field Conditions:",
                         height=100,
-                        help="Specify fields and conditions for the dynamic SQL procedure",
+                        help="Specify fields and conditions for the dynamic SQL",
                         placeholder="e.g., name, age[>:18], status[=:active]"
                     )
                     
-                    # Validation and preview buttons
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        validate_params = st.button("🔍 Validate Parameters", type="primary")
-                    with col_b:
-                        generate_preview = st.button("👁️ Generate Preview", type="secondary")
+                    # Generate SQL button
+                    generate_sql_btn = st.button("🚀 Generate SQL", type="primary")
                 
                 with col2:
                     st.subheader("💡 Examples Based on Your Data")
                     examples = generate_procedure_examples(schema)
                     
                     if examples:
-                        st.markdown("**Click to copy to field conditions:**")
-                        for i, example in enumerate(examples):
-                            if st.button(f"📋 {example}", key=f"example_{i}"):
-                                st.session_state.example_copied = example
-                                st.success(f"✅ Copied: {example}")
-                    else:
-                        st.info("No examples available - analyzing your JSON structure...")
-                
-                # Display results
-                if validate_params and procedures_input.strip():
-                    st.markdown('<div class="success-box">✅ Parameters validated successfully!</div>', unsafe_allow_html=True)
-                    st.code(f"Parameters: {procedures_input}")
-                
-                if generate_preview and all([table_name, json_column_name, procedures_input]):
-                    st.subheader("📄 SQL Preview")
-                    sql_preview = generate_sql_preview(schema, procedures_input)
-                    st.code(sql_preview, language="sql")
+                        st.markdown("**Quick Examples (click to use):**")
+                        
+                        # Extract just the field conditions from examples for easier use
+                        queryable = find_queryable_fields(schema)
+                        if queryable:
+                            # Example 1: First 3 fields
+                            example_fields_1 = ", ".join([f['path'].split('.')[-1] for f in queryable[:3]])
+                            if st.button(f"📋 Basic: {example_fields_1}", key="ex1"):
+                                st.session_state.field_conditions = example_fields_1
+                                st.rerun()
+                            
+                            # Example 2: With conditions
+                            if len(queryable) > 1:
+                                field1 = queryable[0]['path'].split('.')[-1]
+                                field2 = queryable[1]['path'].split('.')[-1]
+                                example_with_conditions = f"{field1}, {field2}[IS NOT NULL]"
+                                if st.button(f"📋 Filtered: {example_with_conditions}", key="ex2"):
+                                    st.session_state.field_conditions = example_with_conditions
+                                    st.rerun()
+                            
+                            # Example 3: Array fields
+                            array_fields = [f for f in queryable if f['in_array']]
+                            if array_fields:
+                                array_example = ", ".join([f['path'].split('.')[-1] for f in array_fields[:2]])
+                                if st.button(f"📋 Arrays: {array_example}", key="ex3"):
+                                    st.session_state.field_conditions = array_example
+                                    st.rerun()
                     
-                    # Download SQL
-                    st.download_button(
-                        label="📥 Download SQL Preview",
-                        data=sql_preview,
-                        file_name=f"sql_preview_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
-                        mime="text/sql"
-                    )
-                elif generate_preview:
+                    # Use session state for field conditions if set
+                    if 'field_conditions' in st.session_state:
+                        field_conditions = st.session_state.field_conditions
+                        del st.session_state.field_conditions
+                
+                # Generate SQL when button is clicked
+                if generate_sql_btn and all([table_name, json_column_name, field_conditions]):
+                    try:
+                        with st.spinner("🔄 Generating SQL from your JSON structure..."):
+                            generated_sql = generate_sql_from_json_data(
+                                json_data, table_name, json_column_name, field_conditions
+                            )
+                        
+                        st.markdown("---")
+                        st.subheader("🎯 Generated SQL Query")
+                        st.code(generated_sql, language="sql")
+                        
+                        # Download generated SQL
+                        st.download_button(
+                            label="📥 Download Generated SQL",
+                            data=generated_sql,
+                            file_name=f"generated_sql_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
+                            mime="text/sql",
+                            key="download_generated_sql"
+                        )
+                        
+                        # Show field analysis used
+                        with st.expander("🔍 Analysis Details"):
+                            st.markdown("**Fields analyzed from your JSON:**")
+                            analyzed_fields = []
+                            for path, details in schema.items():
+                                if details.get('is_queryable', False):
+                                    analyzed_fields.append({
+                                        'Field': path,
+                                        'Type': details['snowflake_type'],
+                                        'In Array': '✅' if details.get('in_array', False) else '❌',
+                                        'Sample': details.get('sample_value', 'N/A')[:50]
+                                    })
+                            
+                            if analyzed_fields:
+                                st.dataframe(pd.DataFrame(analyzed_fields), use_container_width=True)
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error generating SQL: {str(e)}")
+                        st.error("Please check your field conditions and try again.")
+                
+                elif generate_sql_btn:
                     st.warning("⚠️ Please fill in all required fields (Table Name, JSON Column, Field Conditions)")
                 
-                # Snowflake Procedure Information
+                # Show the equivalent Snowflake procedure call
                 st.markdown("---")
-                st.subheader("🏔️ Using the Snowflake Procedure")
+                st.subheader("🏔️ Equivalent Snowflake Procedure Call")
                 
-                if all([table_name, json_column_name, procedures_input]):
+                if all([table_name, json_column_name, field_conditions]):
                     procedure_call = f"""CALL SAINATH.SNOW.DYNAMIC_SQL_LARGE_IMPROVED(
     '{table_name}',
     '{json_column_name}',
-    '{procedures_input}'
+    '{field_conditions}'
 );"""
                     st.code(procedure_call, language="sql")
                     
@@ -579,10 +624,13 @@ def main():
                         label="📥 Download Procedure Call",
                         data=procedure_call,
                         file_name=f"procedure_call_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
-                        mime="text/sql"
+                        mime="text/sql",
+                        key="download_procedure_call"
                     )
+                    
+                    st.info("💡 **Note:** The SQL above is generated directly from your JSON data. The procedure call shows the equivalent Snowflake stored procedure that would produce similar results.")
                 else:
-                    st.info("Fill in the parameters above to generate the procedure call.")
+                    st.info("Fill in the parameters above to see both the generated SQL and equivalent procedure call.")
         
         # Instructions and help
         if json_data is not None:
