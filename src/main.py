@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 import logging
 import os
+from python_sql_generator import generate_sql_from_json_data
 
 # Import from our modules
 from json_analyzer import analyze_json_structure
