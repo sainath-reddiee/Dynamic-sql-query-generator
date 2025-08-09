@@ -6,24 +6,118 @@ import re
 from datetime import datetime
 import logging
 import os
-from python_sql_generator import generate_sql_from_json_data
-from enhanced_snowflake_connector import EnhancedSnowflakeConnectionManager, render_enhanced_performance_info, render_performance_metrics
-from snowflake_connector import render_snowflake_connection_ui, render_snowflake_operations_ui
-
-# Import from our modules
-from json_analyzer import analyze_json_structure
-from utils import (
-    get_snowflake_type, find_arrays, find_nested_objects,
-    find_queryable_fields, prettify_json, validate_json_input,
-    export_analysis_results
-)
-from sql_generator import generate_procedure_examples, generate_sql_preview
-
-# Import configuration
-from config import config
 
 # Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Mock imports for missing modules - replace with actual imports when available
+try:
+    from python_sql_generator import generate_sql_from_json_data
+except ImportError:
+    def generate_sql_from_json_data(json_data, table_name, json_column_name, field_conditions):
+        return f"-- SQL Generation not available\n-- Table: {table_name}\n-- Column: {json_column_name}\n-- Conditions: {field_conditions}"
+
+try:
+    from enhanced_snowflake_connector import EnhancedSnowflakeConnectionManager, render_enhanced_performance_info, render_performance_metrics
+    from snowflake_connector import render_snowflake_connection_ui, render_snowflake_operations_ui
+except ImportError:
+    def render_snowflake_connection_ui():
+        st.warning("Snowflake connector modules not available. Please ensure all dependencies are installed.")
+        return None
+    def render_snowflake_operations_ui(conn_manager):
+        st.info("Snowflake operations UI not available.")
+
+try:
+    from json_analyzer import analyze_json_structure
+except ImportError:
+    def analyze_json_structure(json_data):
+        """Mock JSON structure analyzer"""
+        def traverse_json(obj, path="", schema=None):
+            if schema is None:
+                schema = {}
+            
+            if isinstance(obj, dict):
+                for key, value in obj.items():
+                    current_path = f"{path}.{key}" if path else key
+                    schema[current_path] = {
+                        'type': type(value).__name__,
+                        'snowflake_type': get_snowflake_type(value),
+                        'is_array': isinstance(value, list),
+                        'is_nested': isinstance(value, (dict, list)),
+                        'is_queryable': not isinstance(value, (dict, list))
+                    }
+                    if isinstance(value, (dict, list)):
+                        traverse_json(value, current_path, schema)
+            elif isinstance(obj, list) and obj:
+                # Analyze first item in array for structure
+                traverse_json(obj[0], path, schema)
+            
+            return schema
+        
+        return traverse_json(json_data)
+
+try:
+    from utils import (
+        get_snowflake_type, find_arrays, find_nested_objects,
+        find_queryable_fields, prettify_json, validate_json_input,
+        export_analysis_results
+    )
+except ImportError:
+    # Mock utility functions
+    def get_snowflake_type(value):
+        """Convert Python type to Snowflake type"""
+        type_mapping = {
+            str: "VARCHAR",
+            int: "NUMBER",
+            float: "FLOAT",
+            bool: "BOOLEAN",
+            dict: "OBJECT",
+            list: "ARRAY"
+        }
+        return type_mapping.get(type(value), "VARIANT")
+    
+    def find_arrays(schema):
+        return {path: info for path, info in schema.items() if info.get('is_array', False)}
+    
+    def find_nested_objects(schema):
+        return {path: info for path, info in schema.items() if info.get('is_nested', False) and not info.get('is_array', False)}
+    
+    def find_queryable_fields(schema):
+        return {path: info for path, info in schema.items() if info.get('is_queryable', False)}
+    
+    def prettify_json(json_data):
+        return json.dumps(json_data, indent=2, ensure_ascii=False)
+    
+    def validate_json_input(json_text):
+        try:
+            data = json.loads(json_text)
+            return True, "Valid JSON", data
+        except json.JSONDecodeError as e:
+            return False, f"Invalid JSON: {str(e)}", None
+    
+    def export_analysis_results(schema, format_type="json"):
+        if format_type == "json":
+            return json.dumps(schema, indent=2)
+        elif format_type == "csv":
+            df = pd.DataFrame.from_dict(schema, orient='index')
+            return df.to_csv(index=True)
+
+try:
+    from sql_generator import generate_procedure_examples, generate_sql_preview
+except ImportError:
+    def generate_procedure_examples():
+        return "-- Procedure examples not available"
+    
+    def generate_sql_preview(schema):
+        return "-- SQL preview not available"
+
+try:
+    from config import config
+except ImportError:
+    class Config:
+        APP_NAME = "JSON-to-SQL Analyzer"
+    config = Config()
 
 # Page configuration
 st.set_page_config(
@@ -66,6 +160,7 @@ st.markdown("""
         color: #0066cc;
         border: 1px solid #b3d9ff;
         display: inline-block;
+        margin: 0.2rem;
     }
     .array-indicator {
         background: linear-gradient(90deg, #ffe6cc, #fff0e6);
@@ -129,6 +224,203 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def render_path_analysis(schema):
+    """Render the complete paths analysis"""
+    if not schema:
+        st.info("No schema data available")
+        return
+    
+    st.markdown("### 📈 Overview")
+    
+    # Metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown('<div class="metric-card"><h3>📊</h3><p>Total Paths</p><h2>{}</h2></div>'.format(len(schema)), unsafe_allow_html=True)
+    with col2:
+        arrays = len([p for p in schema.values() if p.get('is_array')])
+        st.markdown('<div class="metric-card"><h3>📋</h3><p>Arrays</p><h2>{}</h2></div>'.format(arrays), unsafe_allow_html=True)
+    with col3:
+        nested = len([p for p in schema.values() if p.get('is_nested') and not p.get('is_array')])
+        st.markdown('<div class="metric-card"><h3>🏗️</h3><p>Objects</p><h2>{}</h2></div>'.format(nested), unsafe_allow_html=True)
+    with col4:
+        queryable = len([p for p in schema.values() if p.get('is_queryable')])
+        st.markdown('<div class="metric-card"><h3>🔍</h3><p>Queryable</p><h2>{}</h2></div>'.format(queryable), unsafe_allow_html=True)
+    
+    st.markdown("---")
+    st.markdown("### 🗂️ All JSON Paths")
+    
+    # Create DataFrame for display
+    path_data = []
+    for path, info in schema.items():
+        indicators = []
+        if info.get('is_array'):
+            indicators.append("Array")
+        if info.get('is_nested') and not info.get('is_array'):
+            indicators.append("Nested")
+        if info.get('is_queryable'):
+            indicators.append("Queryable")
+        
+        path_data.append({
+            "Path": path,
+            "Python Type": info.get('type', 'Unknown'),
+            "Snowflake Type": info.get('snowflake_type', 'VARIANT'),
+            "Properties": " | ".join(indicators) if indicators else "Basic"
+        })
+    
+    df = pd.DataFrame(path_data)
+    st.dataframe(df, use_container_width=True)
+
+def render_arrays_analysis(schema):
+    """Render arrays analysis"""
+    arrays = find_arrays(schema)
+    
+    if not arrays:
+        st.info("🎉 No arrays found in your JSON structure!")
+        return
+    
+    st.markdown(f"### 📋 Found {len(arrays)} Array(s)")
+    
+    for path, info in arrays.items():
+        with st.expander(f"📋 {path}"):
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.markdown(f'<span class="json-path">{path}</span>', unsafe_allow_html=True)
+                st.write(f"**Snowflake Type:** `{info.get('snowflake_type', 'ARRAY')}`")
+                st.write("**Usage Example:**")
+                st.code(f"""
+-- Flatten array elements
+SELECT 
+    f.value as array_element
+FROM your_table t,
+LATERAL FLATTEN(input => t.json_column:{path.replace('.', ':')}) f;
+                """, language="sql")
+            with col2:
+                st.markdown('<span class="array-indicator">🔢 ARRAY</span>', unsafe_allow_html=True)
+
+def render_nested_objects_analysis(schema):
+    """Render nested objects analysis"""
+    nested = find_nested_objects(schema)
+    
+    if not nested:
+        st.info("🎉 No nested objects found in your JSON structure!")
+        return
+    
+    st.markdown(f"### 🏗️ Found {len(nested)} Nested Object(s)")
+    
+    for path, info in nested.items():
+        with st.expander(f"🏗️ {path}"):
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.markdown(f'<span class="json-path">{path}</span>', unsafe_allow_html=True)
+                st.write(f"**Snowflake Type:** `{info.get('snowflake_type', 'OBJECT')}`")
+                st.write("**Usage Example:**")
+                st.code(f"""
+-- Access nested object properties
+SELECT 
+    json_column:{path.replace('.', ':')} as nested_object,
+    json_column:{path.replace('.', ':')}.property_name as specific_property
+FROM your_table;
+                """, language="sql")
+            with col2:
+                st.markdown('<span class="nested-indicator">📦 OBJECT</span>', unsafe_allow_html=True)
+
+def render_queryable_fields_analysis(schema):
+    """Render queryable fields analysis"""
+    queryable = find_queryable_fields(schema)
+    
+    if not queryable:
+        st.info("No directly queryable fields found.")
+        return
+    
+    st.markdown(f"### 🔍 Found {len(queryable)} Queryable Field(s)")
+    
+    # Group by Snowflake type for better organization
+    type_groups = {}
+    for path, info in queryable.items():
+        sf_type = info.get('snowflake_type', 'VARIANT')
+        if sf_type not in type_groups:
+            type_groups[sf_type] = []
+        type_groups[sf_type].append((path, info))
+    
+    for sf_type, fields in type_groups.items():
+        with st.expander(f"📊 {sf_type} Fields ({len(fields)})"):
+            for path, info in fields:
+                col1, col2, col3 = st.columns([3, 1, 1])
+                with col1:
+                    st.markdown(f'<span class="json-path">{path}</span>', unsafe_allow_html=True)
+                with col2:
+                    st.markdown(f'<span class="queryable-indicator">✅ {sf_type}</span>', unsafe_allow_html=True)
+                with col3:
+                    st.code(f":{path.replace('.', ':')}")
+
+def render_json_formatter(json_data):
+    """Render JSON formatter tab"""
+    st.markdown("### 🎨 JSON Formatting Options")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.markdown("**⚙️ Format Settings**")
+        indent_size = st.selectbox("Indentation:", [2, 4, 8], index=0)
+        sort_keys = st.checkbox("Sort Keys", value=False)
+        ensure_ascii = st.checkbox("Ensure ASCII", value=False)
+        
+        if st.button("🎨 Format JSON"):
+            try:
+                formatted = json.dumps(
+                    json_data, 
+                    indent=indent_size, 
+                    sort_keys=sort_keys, 
+                    ensure_ascii=ensure_ascii
+                )
+                st.session_state['formatted_json'] = formatted
+                st.success("✅ JSON formatted successfully!")
+            except Exception as e:
+                st.error(f"❌ Error formatting JSON: {str(e)}")
+    
+    with col2:
+        st.markdown("**📊 JSON Statistics**")
+        
+        def count_json_elements(obj, counts=None):
+            if counts is None:
+                counts = {'objects': 0, 'arrays': 0, 'strings': 0, 'numbers': 0, 'booleans': 0, 'nulls': 0}
+            
+            if isinstance(obj, dict):
+                counts['objects'] += 1
+                for value in obj.values():
+                    count_json_elements(value, counts)
+            elif isinstance(obj, list):
+                counts['arrays'] += 1
+                for item in obj:
+                    count_json_elements(item, counts)
+            elif isinstance(obj, str):
+                counts['strings'] += 1
+            elif isinstance(obj, (int, float)):
+                counts['numbers'] += 1
+            elif isinstance(obj, bool):
+                counts['booleans'] += 1
+            elif obj is None:
+                counts['nulls'] += 1
+            
+            return counts
+        
+        stats = count_json_elements(json_data)
+        for key, value in stats.items():
+            st.metric(key.title(), value)
+    
+    # Display formatted JSON
+    if 'formatted_json' in st.session_state:
+        st.markdown("### 📄 Formatted JSON")
+        st.code(st.session_state['formatted_json'], language="json")
+        
+        # Download button
+        st.download_button(
+            label="💾 Download Formatted JSON",
+            data=st.session_state['formatted_json'],
+            file_name=f"formatted_json_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json"
+        )
+
 # Main App
 def main():
     try:
@@ -180,17 +472,17 @@ def main():
             json_text = st.sidebar.text_area(
                 "Paste your JSON here:",
                 height=200,
-                placeholder='{"example": "data"}'
+                placeholder='{"example": "data", "nested": {"value": 123}, "array": [1, 2, 3]}'
             )
             if json_text.strip():
                 is_valid, message, json_data = validate_json_input(json_text)
                 if not is_valid:
                     st.sidebar.error(f"❌ {message}")
-                    json_data = None # Ensure json_data is None on error
+                    json_data = None
                 else:
                     st.sidebar.markdown('<div class="success-box">✅ JSON parsed successfully!</div>', unsafe_allow_html=True)
 
-        # The main tabs are now created regardless of whether JSON is loaded
+        # Create tabs
         tab_list = [
             "📊 Complete Paths",
             "📋 Arrays Analysis",
@@ -207,50 +499,48 @@ def main():
                 schema = analyze_json_structure(json_data)
             if not schema:
                 st.error("❌ Failed to analyze JSON structure. Please check your data and try again.")
-                # Do not return, allow other tabs to function
         
-        # Content for Analysis Tabs (1-5)
+        # Tab 1: Complete Paths
         with tab1:
             st.markdown('<h2 class="section-header">📊 Complete JSON Paths</h2>', unsafe_allow_html=True)
             if schema:
-                # UI for displaying paths
-                pass # ... (rest of the logic for this tab)
+                render_path_analysis(schema)
             else:
-                st.info("👆 Upload or paste JSON data to see the analysis.")
+                st.info("👆 Upload or paste JSON data to see the complete path analysis.")
 
+        # Tab 2: Arrays Analysis
         with tab2:
             st.markdown('<h2 class="section-header">📋 Arrays Analysis</h2>', unsafe_allow_html=True)
             if schema:
-                # UI for displaying array analysis
-                pass # ... (rest of the logic for this tab)
+                render_arrays_analysis(schema)
             else:
-                st.info("👆 Upload or paste JSON data to see the analysis.")
+                st.info("👆 Upload or paste JSON data to see the arrays analysis.")
 
+        # Tab 3: Nested Objects
         with tab3:
             st.markdown('<h2 class="section-header">🏗️ Nested Objects</h2>', unsafe_allow_html=True)
             if schema:
-                # UI for displaying nested objects
-                pass # ... (rest of the logic for this tab)
+                render_nested_objects_analysis(schema)
             else:
-                st.info("👆 Upload or paste JSON data to see the analysis.")
+                st.info("👆 Upload or paste JSON data to see the nested objects analysis.")
 
+        # Tab 4: Queryable Fields
         with tab4:
             st.markdown('<h2 class="section-header">🔍 Queryable Fields</h2>', unsafe_allow_html=True)
             if schema:
-                # UI for displaying queryable fields
-                pass # ... (rest of the logic for this tab)
+                render_queryable_fields_analysis(schema)
             else:
-                st.info("👆 Upload or paste JSON data to see the analysis.")
+                st.info("👆 Upload or paste JSON data to see the queryable fields analysis.")
         
+        # Tab 5: JSON Formatter
         with tab5:
             st.markdown('<h2 class="section-header">🎨 JSON Formatter</h2>', unsafe_allow_html=True)
             if json_data:
-                # UI for JSON formatter
-                pass # ... (rest of the logic for this tab)
+                render_json_formatter(json_data)
             else:
                 st.info("👆 Upload or paste JSON data to use the formatter.")
 
-        # Content for Tab 6 (SQL Generator) - Always visible
+        # Tab 6: SQL Generator
         with tab6:
             st.markdown('<h2 class="section-header">⚡ SQL Generator</h2>', unsafe_allow_html=True)
 
@@ -266,30 +556,48 @@ def main():
                 if not json_data:
                     st.warning("Please upload or paste JSON data first to use this generator.")
                 else:
-                    table_name = st.text_input("Table Name:", key="python_table")
-                    json_column_name = st.text_input("JSON Column Name:", key="python_column")
-                    field_conditions = st.text_area("Field Conditions:", key="python_conditions")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        table_name = st.text_input("Table Name:", value="my_table", key="python_table")
+                        json_column_name = st.text_input("JSON Column Name:", value="json_data", key="python_column")
+                    with col2:
+                        field_conditions = st.text_area(
+                            "Field Conditions:", 
+                            value="name = 'example'\nage > 25",
+                            key="python_conditions",
+                            help="Enter conditions one per line"
+                        )
+                    
                     if st.button("🚀 Generate SQL", key="python_generate"):
-                        if all([table_name, json_column_name, field_conditions]):
-                            sql = generate_sql_from_json_data(json_data, table_name, json_column_name, field_conditions)
-                            st.code(sql, language="sql")
+                        if all([table_name, json_column_name]):
+                            try:
+                                sql = generate_sql_from_json_data(json_data, table_name, json_column_name, field_conditions)
+                                st.markdown("#### Generated SQL:")
+                                st.code(sql, language="sql")
+                                
+                                # Download button for SQL
+                                st.download_button(
+                                    label="💾 Download SQL",
+                                    data=sql,
+                                    file_name=f"generated_sql_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
+                                    mime="text/plain"
+                                )
+                            except Exception as e:
+                                st.error(f"❌ Error generating SQL: {str(e)}")
                         else:
-                            st.warning("Please fill in all fields.")
+                            st.warning("Please fill in the table name and JSON column name.")
             else:  # Snowflake Database approach
                 st.markdown("#### 🏔️ Snowflake Database Integration")
                 
-                # The connection UI is always available
+                # The connection UI
                 conn_manager = render_snowflake_connection_ui()
 
-                if conn_manager and conn_manager.is_connected:
+                if conn_manager and hasattr(conn_manager, 'is_connected') and conn_manager.is_connected:
                     st.markdown("---")
                     st.subheader("📊 Database Operations")
-                    # The operations UI is now self-contained and manages its own data fetching
                     render_snowflake_operations_ui(conn_manager)
-                # ** THE FIX IS HERE: This block is now correctly indented. **
-                elif 'snowflake_connection' not in st.session_state:
+                else:
                     st.info("👆 Connect to your Snowflake database to proceed.")
-
 
         # Footer
         st.markdown("""
