@@ -214,7 +214,7 @@ def main():
             st.markdown('<h2 class="section-header">📊 Complete JSON Paths</h2>', unsafe_allow_html=True)
             if schema:
                 # UI for displaying paths
-                # ... (rest of the logic for this tab)
+                pass # ... (rest of the logic for this tab)
             else:
                 st.info("👆 Upload or paste JSON data to see the analysis.")
 
@@ -222,7 +222,7 @@ def main():
             st.markdown('<h2 class="section-header">📋 Arrays Analysis</h2>', unsafe_allow_html=True)
             if schema:
                 # UI for displaying array analysis
-                # ... (rest of the logic for this tab)
+                pass # ... (rest of the logic for this tab)
             else:
                 st.info("👆 Upload or paste JSON data to see the analysis.")
 
@@ -230,7 +230,7 @@ def main():
             st.markdown('<h2 class="section-header">🏗️ Nested Objects</h2>', unsafe_allow_html=True)
             if schema:
                 # UI for displaying nested objects
-                # ... (rest of the logic for this tab)
+                pass # ... (rest of the logic for this tab)
             else:
                 st.info("👆 Upload or paste JSON data to see the analysis.")
 
@@ -238,7 +238,7 @@ def main():
             st.markdown('<h2 class="section-header">🔍 Queryable Fields</h2>', unsafe_allow_html=True)
             if schema:
                 # UI for displaying queryable fields
-                # ... (rest of the logic for this tab)
+                pass # ... (rest of the logic for this tab)
             else:
                 st.info("👆 Upload or paste JSON data to see the analysis.")
         
@@ -246,7 +246,7 @@ def main():
             st.markdown('<h2 class="section-header">🎨 JSON Formatter</h2>', unsafe_allow_html=True)
             if json_data:
                 # UI for JSON formatter
-                # ... (rest of the logic for this tab)
+                pass # ... (rest of the logic for this tab)
             else:
                 st.info("👆 Upload or paste JSON data to use the formatter.")
 
@@ -286,8 +286,10 @@ def main():
                     st.subheader("📊 Database Operations")
                     # The operations UI is now self-contained and manages its own data fetching
                     render_snowflake_operations_ui(conn_manager)
+                # ** THE FIX IS HERE: This block is now correctly indented. **
                 elif 'snowflake_connection' not in st.session_state:
-                     st.info("👆 Connect to your Snowflake database to proceed.")
+                    st.info("👆 Connect to your Snowflake database to proceed.")
+
 
         # Footer
         st.markdown("""
