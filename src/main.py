@@ -7,11 +7,9 @@ from datetime import datetime
 import logging
 import os
 from python_sql_generator import generate_sql_from_json_data
-# Keep the enhanced connector for its class
 from enhanced_snowflake_connector import EnhancedSnowflakeConnectionManager, render_enhanced_performance_info, render_performance_metrics
-# Import the missing UI functions from the correct file
+# Correctly import UI functions from the standard connector
 from snowflake_connector import render_snowflake_connection_ui, render_snowflake_operations_ui
-
 
 # Import from our modules
 from json_analyzer import analyze_json_structure
@@ -137,7 +135,7 @@ def main():
     try:
         # Header
         st.markdown('<h1 class="main-header">❄️ JSON-to-SQL Analyzer for Snowflake</h1>', unsafe_allow_html=True)
-        
+
         # Description
         st.markdown("""
         <div class="feature-box">
@@ -151,7 +149,7 @@ def main():
         </ul>
         </div>
         """, unsafe_allow_html=True)
-        
+
         # Sidebar for input method selection
         st.sidebar.header("📥 Data Input")
         input_method = st.sidebar.radio(
@@ -159,9 +157,9 @@ def main():
             ["Upload JSON File", "Paste JSON Text"],
             help="Select how you want to provide your JSON data"
         )
-        
+
         json_data = None
-        
+
         # Input handling
         if input_method == "Upload JSON File":
             st.sidebar.markdown("### 📁 File Upload")
@@ -170,20 +168,20 @@ def main():
                 type=['json'],
                 help="Upload a JSON file to analyze its structure (max 200MB)"
             )
-            
+
             if uploaded_file is not None:
                 try:
                     # Check file size
                     if uploaded_file.size > 200 * 1024 * 1024:  # 200MB limit
                         st.sidebar.error("❌ File too large. Please upload a file smaller than 200MB.")
                         return
-                    
+
                     json_data = json.load(uploaded_file)
                     st.sidebar.markdown(
-                        f'<div class="success-box">✅ File "{uploaded_file.name}" loaded successfully!</div>', 
+                        f'<div class="success-box">✅ File "{uploaded_file.name}" loaded successfully!</div>',
                         unsafe_allow_html=True
                     )
-                    
+
                     # Show file stats
                     file_stats = f"""
                     **File Stats:**
@@ -191,12 +189,12 @@ def main():
                     - Type: {uploaded_file.type}
                     """
                     st.sidebar.markdown(file_stats)
-                    
+
                 except json.JSONDecodeError as e:
                     st.sidebar.error(f"❌ Invalid JSON file: {str(e)}")
                 except Exception as e:
                     st.sidebar.error(f"❌ Error reading file: {str(e)}")
-        
+
         else:  # Paste JSON Text
             st.sidebar.markdown("### ✏️ Text Input")
             json_text = st.sidebar.text_area(
@@ -205,61 +203,61 @@ def main():
                 help="Paste JSON text directly into this area",
                 placeholder='{"example": "data", "nested": {"field": "value"}}'
             )
-            
+
             if json_text.strip():
                 is_valid, message, json_data = validate_json_input(json_text)
                 if is_valid:
                     st.sidebar.markdown(
-                        '<div class="success-box">✅ JSON parsed successfully!</div>', 
+                        '<div class="success-box">✅ JSON parsed successfully!</div>',
                         unsafe_allow_html=True
                     )
                 else:
                     st.sidebar.error(f"❌ {message}")
-        
+
         # Main content area
         if json_data is not None:
             # Analyze the JSON structure
             with st.spinner("Analyzing JSON structure..."):
                 schema = analyze_json_structure(json_data)
-            
+
             if not schema:
                 st.error("❌ Failed to analyze JSON structure. Please check your data and try again.")
                 return
-            
+
             # Summary metrics
             st.markdown('<h2 class="section-header">📊 Analysis Summary</h2>', unsafe_allow_html=True)
-            
+
             col1, col2, col3, col4 = st.columns(4)
-            
+
             with col1:
                 total_paths = len(schema)
                 st.markdown(f'<div class="metric-card"><h3>{total_paths}</h3><p>Total Paths</p></div>', unsafe_allow_html=True)
-            
+
             with col2:
                 arrays_count = len(find_arrays(schema))
                 st.markdown(f'<div class="metric-card"><h3>{arrays_count}</h3><p>Arrays Found</p></div>', unsafe_allow_html=True)
-            
+
             with col3:
                 nested_count = len(find_nested_objects(schema))
                 st.markdown(f'<div class="metric-card"><h3>{nested_count}</h3><p>Nested Objects</p></div>', unsafe_allow_html=True)
-            
+
             with col4:
                 queryable_count = len(find_queryable_fields(schema))
                 st.markdown(f'<div class="metric-card"><h3>{queryable_count}</h3><p>Queryable Fields</p></div>', unsafe_allow_html=True)
-            
+
             # Create tabs for different features
             tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-                "📊 Complete Paths", 
-                "📋 Arrays Analysis", 
-                "🏗️ Nested Objects", 
+                "📊 Complete Paths",
+                "📋 Arrays Analysis",
+                "🏗️ Nested Objects",
                 "🔍 Queryable Fields",
                 "🎨 JSON Formatter",
                 "⚡ SQL Generator"
             ])
-            
+
             with tab1:
                 st.markdown('<h2 class="section-header">📊 Complete JSON Paths</h2>', unsafe_allow_html=True)
-                
+
                 if schema:
                     # Filter options
                     col1, col2 = st.columns(2)
@@ -273,7 +271,7 @@ def main():
                             "Filter by type:",
                             ["All"] + sorted(list(set(info['type'] for info in schema.values())))
                         )
-                    
+
                     # Create a DataFrame for better display
                     paths_data = []
                     for path, info in schema.items():
@@ -282,7 +280,7 @@ def main():
                             continue
                         if type_filter != "All" and info['type'] != type_filter:
                             continue
-                            
+
                         paths_data.append({
                             'Path': path,
                             'Type': info['type'],
@@ -292,11 +290,11 @@ def main():
                             'Queryable': '✅' if info['is_queryable'] else '❌',
                             'Sample Value': info['sample_value']
                         })
-                    
+
                     if paths_data:
                         df = pd.DataFrame(paths_data)
                         st.dataframe(df, use_container_width=True, height=400)
-                        
+
                         # Download option
                         csv = df.to_csv(index=False)
                         st.download_button(
@@ -309,18 +307,18 @@ def main():
                         st.info("No paths match the selected filters.")
                 else:
                     st.warning("No paths found in the JSON structure.")
-            
+
             with tab2:
                 st.markdown('<h2 class="section-header">📋 Arrays Analysis</h2>', unsafe_allow_html=True)
-                
+
                 arrays = find_arrays(schema)
                 if arrays:
                     st.markdown(f'<div class="success-box">Found {len(arrays)} array(s) in your JSON structure</div>', unsafe_allow_html=True)
-                    
+
                     for i, array in enumerate(arrays):
                         with st.expander(f"Array {i+1}: {array['path']}", expanded=i < 3):
                             col1, col2, col3, col4 = st.columns(4)
-                            
+
                             with col1:
                                 st.metric("Depth Level", array['depth'])
                             with col2:
@@ -335,26 +333,26 @@ def main():
                                         st.markdown(f'<span class="array-indicator">{parent}</span>', unsafe_allow_html=True)
                                 else:
                                     st.write("Root level")
-                            
+
                             st.markdown(f'**Full Path:** <span class="json-path">{array["path"]}</span>', unsafe_allow_html=True)
-                            
+
                             # Show usage example
                             st.write("**SQL Usage Example:**")
                             st.code(f"LATERAL FLATTEN(input => json_column:{array['path']}) as flattened_{i+1}")
                 else:
                     st.info("No arrays found in the JSON structure.")
-            
+
             with tab3:
                 st.markdown('<h2 class="section-header">🏗️ Nested Objects</h2>', unsafe_allow_html=True)
-                
+
                 nested_objects = find_nested_objects(schema)
                 if nested_objects:
                     st.markdown(f'<div class="success-box">Found {len(nested_objects)} nested object(s)</div>', unsafe_allow_html=True)
-                    
+
                     for i, obj in enumerate(nested_objects):
                         with st.expander(f"Nested Object {i+1}: {obj['path']}", expanded=i < 3):
                             col1, col2 = st.columns(2)
-                            
+
                             with col1:
                                 st.metric("Nesting Depth", obj['depth'])
                                 st.write("**In Array Context:**")
@@ -362,7 +360,7 @@ def main():
                                     st.markdown('<span class="array-indicator">Yes</span>', unsafe_allow_html=True)
                                 else:
                                     st.markdown('<span class="nested-indicator">No</span>', unsafe_allow_html=True)
-                            
+
                             with col2:
                                 st.write("**Parent Arrays:**")
                                 if obj['parent_arrays']:
@@ -370,22 +368,22 @@ def main():
                                         st.markdown(f'<span class="array-indicator">{parent}</span>', unsafe_allow_html=True)
                                 else:
                                     st.write("None")
-                            
+
                             st.markdown(f'**Full Path:** <span class="json-path">{obj["path"]}</span>', unsafe_allow_html=True)
-                            
+
                             # Show access example
                             st.write("**Access Example:**")
                             st.code(f"json_column:{obj['path']}")
                 else:
                     st.info("No nested objects found in the JSON structure.")
-            
+
             with tab4:
                 st.markdown('<h2 class="section-header">🔍 Queryable Fields</h2>', unsafe_allow_html=True)
-                
+
                 queryable_fields = find_queryable_fields(schema)
                 if queryable_fields:
                     st.markdown(f'<div class="success-box">Found {len(queryable_fields)} queryable field(s)</div>', unsafe_allow_html=True)
-                    
+
                     # Filter options
                     col1, col2 = st.columns(2)
                     with col1:
@@ -400,7 +398,7 @@ def main():
                             ["All", "In Arrays Only", "Not in Arrays"],
                             key="queryable_array_filter"
                         )
-                    
+
                     # Apply filters
                     filtered_fields = queryable_fields
                     if type_filter != "All":
@@ -409,18 +407,18 @@ def main():
                         filtered_fields = [f for f in filtered_fields if f['in_array']]
                     elif array_filter == "Not in Arrays":
                         filtered_fields = [f for f in filtered_fields if not f['in_array']]
-                    
+
                     if filtered_fields:
                         # Display fields in a more compact way
                         for i, field in enumerate(filtered_fields):
                             with st.expander(f"Field {i+1}: {field['path']}", expanded=i < 5):
                                 col1, col2, col3 = st.columns(3)
-                                
+
                                 with col1:
                                     st.write("**Types:**")
                                     st.code(f"Python: {field['type']}")
                                     st.code(f"Snowflake: {field['snowflake_type']}")
-                                
+
                                 with col2:
                                     st.metric("Depth", field['depth'])
                                     st.write("**In Array:**")
@@ -428,16 +426,16 @@ def main():
                                         st.markdown('<span class="array-indicator">Yes</span>', unsafe_allow_html=True)
                                     else:
                                         st.markdown('<span class="queryable-indicator">No</span>', unsafe_allow_html=True)
-                                
+
                                 with col3:
                                     st.write("**Sample Value:**")
                                     st.code(field['sample_value'])
-                                
+
                                 if field['array_context']:
                                     st.write("**Array Context:**")
                                     for ctx in field['array_context']:
                                         st.markdown(f'<span class="array-indicator">{ctx}</span>', unsafe_allow_html=True)
-                                
+
                                 # Show SQL access pattern
                                 st.write("**SQL Access Pattern:**")
                                 st.code(f"json_column:{field['path']} as {field['path'].split('.')[-1]}")
@@ -445,28 +443,28 @@ def main():
                         st.info("No fields match the selected filters.")
                 else:
                     st.info("No queryable fields found in the JSON structure.")
-            
+
             with tab5:
                 st.markdown('<h2 class="section-header">🎨 JSON Formatter</h2>', unsafe_allow_html=True)
-                
+
                 # Format options
                 col1, col2 = st.columns(2)
                 with col1:
                     indent_size = st.selectbox("Indentation:", [2, 4, 8], index=0)
                 with col2:
                     sort_keys = st.checkbox("Sort keys alphabetically", value=False)
-                
+
                 # Display original JSON
                 st.subheader("Original JSON:")
                 original_json = json.dumps(json_data, separators=(',', ':'))
                 st.text_area("Compact JSON", original_json, height=150, disabled=True, key="original_json")
-                
+
                 # Display prettified JSON
                 st.subheader("Formatted JSON:")
                 try:
                     prettified = json.dumps(json_data, indent=indent_size, ensure_ascii=False, sort_keys=sort_keys)
                     st.text_area("Formatted JSON", prettified, height=300, disabled=True, key="prettified_json")
-                    
+
                     # JSON statistics
                     st.subheader("JSON Statistics:")
                     col1, col2, col3 = st.columns(3)
@@ -475,9 +473,13 @@ def main():
                     with col2:
                         st.metric("Formatted Size", f"{len(prettified):,} chars")
                     with col3:
-                        compression_ratio = (1 - len(original_json) / len(prettified)) * 100
-                        st.metric("Size Increase", f"{compression_ratio:.1f}%")
-                    
+                        if len(prettified) > 0:
+                            compression_ratio = (1 - len(original_json) / len(prettified)) * 100
+                            st.metric("Size Increase", f"{compression_ratio:.1f}%")
+                        else:
+                             st.metric("Size Increase", "N/A")
+
+
                     # Download options
                     st.subheader("Download Options:")
                     col1, col2 = st.columns(2)
@@ -495,13 +497,13 @@ def main():
                             file_name=f"formatted_json_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                             mime="application/json"
                         )
-                        
+
                 except Exception as e:
                     st.error(f"Error formatting JSON: {str(e)}")
-            
+
             with tab6:
                 st.markdown('<h2 class="section-header">⚡ SQL Generator</h2>', unsafe_allow_html=True)
-                
+
                 # Option selector
                 st.markdown("""
                 <div style="background: linear-gradient(145deg, #fff3e0, #f8f9fa); padding: 1rem; border-radius: 10px; border: 1px solid #ffb74d; margin-bottom: 1.5rem;">
@@ -509,7 +511,7 @@ def main():
                     <p style="margin-bottom: 0;">Select how you want to generate and execute your SQL queries:</p>
                 </div>
                 """, unsafe_allow_html=True)
-                
+
                 approach = st.radio(
                     "Select SQL Generation Method:",
                     ["🐍 Pure Python (Instant)", "🏔️ Snowflake Database (Execute)"],
@@ -518,9 +520,9 @@ def main():
                     Snowflake Database: Connect to your database and execute queries directly
                     """
                 )
-                
+
                 st.markdown("---")
-                
+
                 if approach == "🐍 Pure Python (Instant)":
                     # Pure Python approach (existing working code)
                     st.markdown("""
@@ -529,13 +531,13 @@ def main():
                         <p style="margin-bottom: 0;">Generate SQL instantly from your JSON structure without needing database connection.</p>
                     </div>
                     """, unsafe_allow_html=True)
-                    
+
                     # Procedure Parameters Section
                     col1, col2 = st.columns([1, 1])
-                    
+
                     with col1:
                         st.subheader("🧪 Query Parameters")
-                        
+
                         # Input for table and column names
                         table_name = st.text_input(
                             "Table Name:",
@@ -543,14 +545,14 @@ def main():
                             help="Full table name including schema",
                             key="python_table_name"
                         )
-                        
+
                         json_column_name = st.text_input(
                             "JSON Column Name:",
                             placeholder="json_data",
                             help="Name of the column containing JSON data",
                             key="python_json_column"
                         )
-                        
+
                         field_conditions = st.text_area(
                             "Field Conditions:",
                             height=100,
@@ -558,17 +560,17 @@ def main():
                             placeholder="e.g., name, age[>:18], status[=:active]",
                             key="python_field_conditions"
                         )
-                        
+
                         # Generate SQL button
                         generate_sql_btn = st.button("🚀 Generate SQL", type="primary", key="python_generate")
-                    
+
                     with col2:
                         st.subheader("💡 Examples Based on Your Data")
                         examples = generate_procedure_examples(schema)
-                        
+
                         if examples:
                             st.markdown("**Quick Examples (click to use):**")
-                            
+
                             # Extract just the field conditions from examples for easier use
                             queryable = find_queryable_fields(schema)
                             if queryable:
@@ -577,7 +579,7 @@ def main():
                                 if st.button(f"📋 Basic: {example_fields_1}", key="python_ex1"):
                                     st.session_state.python_field_conditions = example_fields_1
                                     st.rerun()
-                                
+
                                 # Example 2: With conditions
                                 if len(queryable) > 1:
                                     field1 = queryable[0]['path'].split('.')[-1]
@@ -586,7 +588,7 @@ def main():
                                     if st.button(f"📋 Filtered: {example_with_conditions}", key="python_ex2"):
                                         st.session_state.python_field_conditions = example_with_conditions
                                         st.rerun()
-                                
+
                                 # Example 3: Array fields
                                 array_fields = [f for f in queryable if f['in_array']]
                                 if array_fields:
@@ -594,12 +596,12 @@ def main():
                                     if st.button(f"📋 Arrays: {array_example}", key="python_ex3"):
                                         st.session_state.python_field_conditions = array_example
                                         st.rerun()
-                        
+
                         # Use session state for field conditions if set
                         if 'python_field_conditions' in st.session_state:
                             field_conditions = st.session_state.python_field_conditions
                             del st.session_state.python_field_conditions
-                    
+
                     # Generate SQL when button is clicked
                     if generate_sql_btn and all([table_name, json_column_name, field_conditions]):
                         try:
@@ -607,11 +609,11 @@ def main():
                                 generated_sql = generate_sql_from_json_data(
                                     json_data, table_name, json_column_name, field_conditions
                                 )
-                            
+
                             st.markdown("---")
                             st.subheader("🎯 Generated SQL Query")
                             st.code(generated_sql, language="sql")
-                            
+
                             # Download generated SQL
                             st.download_button(
                                 label="📥 Download Generated SQL",
@@ -620,7 +622,7 @@ def main():
                                 mime="text/sql",
                                 key="python_download_sql"
                             )
-                            
+
                             # Show field analysis used
                             with st.expander("🔍 Analysis Details"):
                                 st.markdown("**Fields analyzed from your JSON:**")
@@ -633,21 +635,21 @@ def main():
                                             'In Array': '✅' if details.get('in_array', False) else '❌',
                                             'Sample': details.get('sample_value', 'N/A')[:50]
                                         })
-                                
+
                                 if analyzed_fields:
                                     st.dataframe(pd.DataFrame(analyzed_fields), use_container_width=True)
-                            
+
                         except Exception as e:
                             st.error(f"❌ Error generating SQL: {str(e)}")
                             st.error("Please check your field conditions and try again.")
-                    
+
                     elif generate_sql_btn:
                         st.warning("⚠️ Please fill in all required fields (Table Name, JSON Column, Field Conditions)")
-                    
+
                     # Show the equivalent Snowflake procedure call
                     st.markdown("---")
                     st.subheader("🏔️ Equivalent Snowflake Procedure Call")
-                    
+
                     if all([table_name, json_column_name, field_conditions]):
                         procedure_call = f"""CALL SAINATH.SNOW.DYNAMIC_SQL_LARGE_IMPROVED(
     '{table_name}',
@@ -655,7 +657,7 @@ def main():
     '{field_conditions}'
 );"""
                         st.code(procedure_call, language="sql")
-                        
+
                         st.download_button(
                             label="📥 Download Procedure Call",
                             data=procedure_call,
@@ -663,7 +665,7 @@ def main():
                             mime="text/sql",
                             key="python_download_proc"
                         )
-                        
+
                         st.info("💡 **Note:** The SQL above is generated directly from your JSON data. The procedure call shows the equivalent Snowflake stored procedure that would produce similar results.")
                     else:
                         st.info("Fill in the parameters above to see both the generated SQL and equivalent procedure call.")
@@ -675,11 +677,11 @@ def main():
                         <p style="margin-bottom: 0;">Connect to your Snowflake database to execute queries directly and get real results.</p>
                     </div>
                     """, unsafe_allow_html=True)
-                    
+
                     # Step 1: Connection UI
                     st.subheader("🔐 Step 1: Database Connection")
                     conn_manager = render_snowflake_connection_ui()
-                    
+
                     # Step 2: Operations UI (only if connected)
                     if conn_manager and conn_manager.is_connected:
                         st.markdown("---")
@@ -688,7 +690,7 @@ def main():
                     else:
                         st.markdown("---")
                         st.info("👆 **Connect to your Snowflake database above to unlock database operations.**")
-                        
+
                         # Show what's available after connection
                         st.markdown("""
                         <div style="background: linear-gradient(145deg, #f3e5f5, #f8f9fa); padding: 1rem; border-radius: 8px; border: 1px solid #ce93d8; margin-top: 1rem;">
@@ -701,7 +703,7 @@ def main():
                             </ul>
                         </div>
                         """, unsafe_allow_html=True)
-        
+
         # Instructions and help
         if json_data is not None:
             st.markdown("---")
@@ -732,15 +734,15 @@ def main():
             <p><strong>Supported types for casting:</strong> STRING, NUMBER, BOOLEAN, DATE, TIMESTAMP, VARIANT</p>
             </div>
             """, unsafe_allow_html=True)
-            
+
             # Export all results
             st.markdown("---")
             st.subheader("📤 Export Analysis Results")
-            
+
             export_results = export_analysis_results(schema)
             if export_results:
                 col1, col2, col3 = st.columns(3)
-                
+
                 for i, (name, df) in enumerate(export_results.items()):
                     col_idx = i % 3
                     if col_idx == 0:
@@ -796,7 +798,7 @@ def main():
                 </div>
             </div>
             </div>
-            
+
             <div class="feature-box">
             <h3>🚀 Getting Started</h3>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-top: 1rem;">
@@ -818,12 +820,12 @@ def main():
                 </div>
             </div>
             </div>
-            
+
             <div style="text-align: center; margin: 2rem 0;">
                 <h4 style="color: #1f77b4;">👆 Choose an input method from the sidebar to get started!</h4>
             </div>
             """, unsafe_allow_html=True)
-        
+
         # Footer
         st.markdown("""
         <div class="footer">
@@ -831,7 +833,7 @@ def main():
             <p>💡 Pro Tip: For large JSON files, consider sampling your data first to improve performance</p>
         </div>
         """, unsafe_allow_html=True)
-        
+
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
         st.error(f"❌ Application Error: {str(e)}")
