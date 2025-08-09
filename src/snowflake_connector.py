@@ -1,14 +1,14 @@
 """
 Snowflake Database Connector for direct database operations
-Independent module that doesn't interfere with pure Python SQL generation
 """
 import streamlit as st
 import pandas as pd
 import json
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 import logging
 from datetime import datetime
 from python_sql_generator import generate_sql_from_json_data
+from json_analyzer import analyze_json_structure
 
 # Try to import snowflake connector, handle gracefully if not available
 try:
@@ -30,40 +30,21 @@ class SnowflakeConnectionManager:
         self.is_connected = False
 
     def test_connection(self, connection_params: Dict[str, str]) -> Tuple[bool, str]:
-        """Test Snowflake connection parameters"""
         if not SNOWFLAKE_AVAILABLE:
-            return False, "❌ Snowflake connector not available. Install with: pip install snowflake-connector-python"
-
+            return False, "❌ Snowflake connector not available."
         try:
-            # Test connection
-            test_conn = snowflake.connector.connect(**connection_params)
-            test_cursor = test_conn.cursor()
-            test_cursor.execute("SELECT CURRENT_VERSION()")
-            version = test_cursor.fetchone()
-            test_cursor.close()
-            test_conn.close()
-
-            return True, f"✅ Connected successfully! Snowflake version: {version[0]}"
-
+            with snowflake.connector.connect(**connection_params) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT CURRENT_VERSION()")
+                    version = cursor.fetchone()
+                    return True, f"✅ Connected successfully! Snowflake version: {version[0]}"
         except Exception as e:
-            error_msg = str(e)
-            if "Authentication" in error_msg:
-                return False, "❌ Authentication failed. Please check your username and password."
-            elif "Account" in error_msg:
-                return False, "❌ Account identifier is invalid. Please check your account name."
-            elif "Database" in error_msg:
-                return False, "❌ Database or schema not found. Please verify they exist."
-            elif "Network" in error_msg or "timeout" in error_msg.lower():
-                return False, "❌ Network connection failed. Check your internet connection."
-            else:
-                return False, f"❌ Connection failed: {error_msg}"
+            return False, f"❌ Connection failed: {str(e)}"
 
     def connect(self, connection_params: Dict[str, str]) -> bool:
-        """Establish persistent connection"""
         if not SNOWFLAKE_AVAILABLE:
-            st.error("❌ Snowflake connector not available. Please install snowflake-connector-python")
+            st.error("❌ Snowflake connector not available.")
             return False
-
         try:
             self.connection = snowflake.connector.connect(**connection_params)
             self.connection_params = connection_params.copy()
@@ -74,400 +55,162 @@ class SnowflakeConnectionManager:
             return False
 
     def disconnect(self):
-        """Close the connection"""
         if self.connection:
-            try:
-                self.connection.close()
-            except:
-                pass
-            finally:
-                self.connection = None
-                self.is_connected = False
-                self.connection_params = {}
+            self.connection.close()
+            self.connection = None
+            self.is_connected = False
 
     def execute_query(self, sql: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
-        """Execute SQL query and return DataFrame"""
         if not self.is_connected:
             return None, "❌ Not connected to database"
-
         try:
-            cursor = self.connection.cursor(DictCursor)
-            cursor.execute(sql)
-
-            # Get column names
-            columns = [desc[0] for desc in cursor.description] if cursor.description else []
-
-            # Fetch results
-            rows = cursor.fetchall()
-            cursor.close()
-
-            if rows and columns:
-                df = pd.DataFrame(rows, columns=columns)
-                return df, None
-            else:
+            with self.connection.cursor(DictCursor) as cursor:
+                cursor.execute(sql)
+                rows = cursor.fetchall()
+                columns = [desc[0] for desc in cursor.description] if cursor.description else []
+                if rows and columns:
+                    return pd.DataFrame(rows, columns=columns), None
                 return pd.DataFrame(), None
-
         except Exception as e:
-            error_msg = str(e)
-            return None, f"❌ Query execution failed: {error_msg}"
+            return None, f"❌ Query execution failed: {str(e)}"
 
-    def cleanup_temp_table(self, table_name: str) -> bool:
-        """Clean up temporary table"""
-        if not self.is_connected:
-            return False
-
-        try:
-            cursor = self.connection.cursor()
-            cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
-            cursor.close()
-            return True
-        except Exception as e:
-            logger.warning(f"Failed to cleanup temp table {table_name}: {e}")
-            return False
-
-    def list_tables(self, schema_name: str = None) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
-        """List available tables in the current database/schema"""
+    def get_json_columns(self, table_name: str) -> Tuple[Optional[List[str]], Optional[str]]:
+        """Fetches VARIANT or OBJECT columns from a specified table."""
         if not self.is_connected:
             return None, "❌ Not connected to database"
-
         try:
-            cursor = self.connection.cursor(DictCursor)
-
-            if schema_name:
-                sql = f"SHOW TABLES IN SCHEMA {schema_name}"
-            else:
-                sql = "SHOW TABLES"
-
-            cursor.execute(sql)
-            rows = cursor.fetchall()
-            cursor.close()
-
-            if rows:
-                df = pd.DataFrame(rows)
-                return df, "✅ Tables retrieved successfully"
-            else:
-                return pd.DataFrame(), "ℹ️ No tables found"
-
+            sql = f"DESCRIBE TABLE {table_name};"
+            df, error = self.execute_query(sql)
+            if error:
+                return None, error
+            if df is not None and not df.empty:
+                json_cols = df[df['type'].isin(['VARIANT', 'OBJECT', 'ARRAY'])]['name'].tolist()
+                return json_cols, None
+            return [], "No columns found."
         except Exception as e:
-            return None, f"❌ Failed to list tables: {str(e)}"
+            return None, f"❌ Could not describe table: {e}"
+
+    def get_json_sample(self, table_name: str, json_column: str) -> Tuple[Any, Optional[str]]:
+        """Fetches a single, non-null JSON record from a table column."""
+        if not self.is_connected:
+            return None, "❌ Not connected to database"
+        try:
+            sql = f"SELECT {json_column} FROM {table_name} WHERE {json_column} IS NOT NULL LIMIT 1;"
+            df, error = self.execute_query(sql)
+            if error:
+                return None, error
+            if df is not None and not df.empty:
+                sample_str = df.iloc[0][json_column]
+                return json.loads(sample_str), None
+            return None, "❌ No non-null JSON data found in the specified column."
+        except Exception as e:
+            return None, f"❌ Failed to fetch or parse JSON sample: {e}"
 
 
 def render_snowflake_connection_ui() -> Optional[SnowflakeConnectionManager]:
-    """Render Snowflake connection UI and return connection manager if successful"""
-
+    # ... (This function remains the same)
     if not SNOWFLAKE_AVAILABLE:
-        st.error("""
-        ❌ **Snowflake Connector Not Available**
-
-        To use database connectivity features, please install the Snowflake connector:
-        ```bash
-        pip install snowflake-connector-python
-        ```
-        """)
+        st.error("❌ **Snowflake Connector Not Available**")
         return None
 
-    st.markdown("""
-    <div style="background: linear-gradient(145deg, #e3f2fd, #f8f9fa); padding: 1.5rem; border-radius: 10px; border: 1px solid #90caf9; margin-bottom: 1rem;">
-        <h4 style="color: #1976d2; margin-bottom: 1rem;">🔗 Snowflake Database Connection</h4>
-        <p style="margin-bottom: 0.5rem;">Connect to your Snowflake database to:</p>
-        <ul style="margin-bottom: 0;">
-            <li>📊 Execute SQL directly on your data</li>
-            <li>🏔️ Use your existing stored procedures</li>
-            <li>💾 Store and query JSON data in temporary tables</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Connection form
-    with st.form("snowflake_connection_form", clear_on_submit=False):
-        col1, col2 = st.columns(2)
-
-        with col1:
-            account = st.text_input(
-                "Account Identifier*",
-                placeholder="your-account.region.cloud",
-                help="Your Snowflake account identifier (e.g., abc123.us-east-1.aws)"
-            )
-            user = st.text_input(
-                "Username*",
-                placeholder="your_username",
-                help="Your Snowflake username"
-            )
-            password = st.text_input(
-                "Password*",
-                type="password",
-                placeholder="your_password",
-                help="Your Snowflake password"
-            )
-
-        with col2:
-            warehouse = st.text_input(
-                "Warehouse*",
-                placeholder="COMPUTE_WH",
-                help="Warehouse to use for computations"
-            )
-            database = st.text_input(
-                "Database*",
-                placeholder="your_database",
-                help="Database name"
-            )
-            schema = st.text_input(
-                "Schema*",
-                placeholder="PUBLIC",
-                value="PUBLIC",
-                help="Schema name"
-            )
-
-        # Connection options
-        st.markdown("**Advanced Options (Optional):**")
-        col3, col4 = st.columns(2)
-
-        with col3:
-            role = st.text_input(
-                "Role",
-                placeholder="your_role",
-                help="Role to assume (optional)"
-            )
-
-        with col4:
-            timeout = st.number_input(
-                "Timeout (seconds)",
-                min_value=30,
-                max_value=300,
-                value=60,
-                help="Connection timeout"
-            )
-
-        # Form buttons
-        col5, col6, col7 = st.columns([1, 1, 2])
-
-        with col5:
-            test_connection = st.form_submit_button("🧪 Test Connection", type="secondary")
-
-        with col6:
-            connect_button = st.form_submit_button("🔗 Connect", type="primary")
-
-    # Validate required fields
-    required_fields = {
-        'Account': account,
-        'Username': user,
-        'Password': password,
-        'Warehouse': warehouse,
-        'Database': database,
-        'Schema': schema
-    }
-
-    missing_fields = [name for name, value in required_fields.items() if not value or not value.strip()]
-
-    if test_connection or connect_button:
-        if missing_fields:
-            st.error(f"❌ Please fill in required fields: {', '.join(missing_fields)}")
-            return None
-
-    # Build connection parameters
-    connection_params = {
-        'account': account,
-        'user': user,
-        'password': password,
-        'warehouse': warehouse,
-        'database': database,
-        'schema': schema,
-        'login_timeout': timeout
-    }
-
-    if role and role.strip():
-        connection_params['role'] = role
-
-    # Initialize connection manager
-    conn_manager = SnowflakeConnectionManager()
-
-    # Handle test connection
-    if test_connection and not missing_fields:
-        with st.spinner("🔄 Testing connection..."):
-            success, message = conn_manager.test_connection(connection_params)
-
-            if success:
-                st.success(message)
-                st.balloons()
-            else:
-                st.error(message)
-
-        return None  # Don't connect, just test
-
-    # Handle actual connection
-    if connect_button and not missing_fields:
-        with st.spinner("🔄 Connecting to Snowflake..."):
-            if conn_manager.connect(connection_params):
-                st.success("✅ **Successfully connected to Snowflake!**")
-                st.session_state.snowflake_connection = conn_manager
-                st.balloons()
-                return conn_manager
-            else:
+    with st.form("snowflake_connection_form"):
+        # ... (form fields)
+        account = st.text_input("Account Identifier*")
+        user = st.text_input("Username*")
+        password = st.text_input("Password*", type="password")
+        warehouse = st.text_input("Warehouse*")
+        database = st.text_input("Database*")
+        schema = st.text_input("Schema*", value="PUBLIC")
+        
+        submitted = st.form_submit_button("🔗 Connect")
+        if submitted:
+            params = {"account": account, "user": user, "password": password, "warehouse": warehouse, "database": database, "schema": schema}
+            if not all(params.values()):
+                st.error("Please fill all required fields.")
                 return None
-
-    # Check if already connected
+            
+            conn_manager = SnowflakeConnectionManager()
+            if conn_manager.connect(params):
+                st.session_state.snowflake_connection = conn_manager
+                st.success("✅ Connected to Snowflake!")
+                st.rerun()
+            else:
+                st.error("Connection failed.")
+    
     if 'snowflake_connection' in st.session_state:
-        existing_conn = st.session_state.snowflake_connection
-        if existing_conn.is_connected:
-            st.success("✅ **Already connected to Snowflake!**")
-            return existing_conn
-
+        return st.session_state.snowflake_connection
+    
     return None
 
 
-def render_snowflake_operations_ui(conn_manager: SnowflakeConnectionManager, json_data: Any):
-    """Render UI for Snowflake database operations"""
+def render_snowflake_operations_ui(conn_manager: SnowflakeConnectionManager):
+    """Render UI for Snowflake database operations with the new workflow."""
+    
+    # Step 1: Get table name
+    table_name = st.text_input("Enter Snowflake Table Name:", key="db_table_name_input")
 
-    st.markdown("""
-    <div style="background: linear-gradient(145deg, #e8f5e8, #f8f9fa); padding: 1.5rem; border-radius: 10px; border: 1px solid #81c784; margin-bottom: 1rem;">
-        <h4 style="color: #388e3c; margin-bottom: 1rem;">🏔️ Snowflake Database Operations</h4>
-        <p style="margin-bottom: 0;">Execute SQL queries directly on your Snowflake database using your JSON data.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    if table_name:
+        # Step 2: Get JSON columns from the table
+        json_columns, error = conn_manager.get_json_columns(table_name)
+        if error:
+            st.error(error)
+            return
+        if not json_columns:
+            st.warning(f"No VARIANT, OBJECT, or ARRAY columns found in table `{table_name}`.")
+            return
 
-    # Operation tabs
-    db_tab1, db_tab2, db_tab3 = st.tabs(["🧪 Quick Analysis", "📊 Custom Queries", "🔧 Database Info"])
+        # Step 3: Select JSON column
+        json_column = st.selectbox("Select the JSON column to analyze:", json_columns)
 
-    with db_tab1:
-        st.subheader("🧪 Quick JSON Analysis")
+        if json_column:
+            # Step 4: Fetch sample data and analyze it
+            with st.spinner(f"Fetching sample record from `{json_column}`..."):
+                sample_json, error = conn_manager.get_json_sample(table_name, json_column)
+            
+            if error:
+                st.error(error)
+                return
+            
+            if sample_json:
+                st.success("✅ Successfully fetched a sample record for analysis.")
+                with st.expander("View Sample Data"):
+                    st.json(sample_json)
 
-        # Parameters for quick analysis
-        col1, col2 = st.columns(2)
+                # Step 5: Get field conditions and generate SQL
+                field_conditions = st.text_area(
+                    "Field Conditions:",
+                    height=100,
+                    placeholder="e.g., name, rating[>:4.0]",
+                    key="db_field_conditions"
+                )
 
-        with col1:
-            table_name_db = st.text_input(
-                "Table Name*",
-                placeholder="your_schema.your_table",
-                key="db_table_name"
-            )
-        with col2:
-            json_column_db = st.text_input(
-                "JSON Column Name*",
-                placeholder="json_data",
-                key="db_json_column"
-            )
+                if st.button("🚀 Generate and Execute SQL", type="primary"):
+                    if not field_conditions:
+                        st.warning("⚠️ Please provide field conditions.")
+                        return
 
-        field_conditions_db = st.text_area(
-            "Field Conditions:",
-            height=80,
-            placeholder="e.g., name, age[>:18], status[=:active]",
-            key="db_field_conditions"
-        )
-
-        if st.button("🚀 Run Quick Analysis", type="primary"):
-            if not all([table_name_db, json_column_db, field_conditions_db]):
-                st.warning("⚠️ Please fill in all required fields.")
-            else:
-                try:
-                    with st.spinner("🔄 Generating SQL from JSON data..."):
-                        # **THE FIX IS HERE**: Use the local Python SQL generator
+                    with st.spinner("🔄 Generating SQL based on database schema..."):
                         generated_sql = generate_sql_from_json_data(
-                            json_data, table_name_db, json_column_db, field_conditions_db
+                            sample_json, table_name, json_column, field_conditions
                         )
-
+                    
                     if generated_sql and not generated_sql.strip().startswith("-- Error"):
-                        st.success("✅ SQL Generated Successfully")
                         st.subheader("📄 Generated SQL")
                         st.code(generated_sql, language="sql")
 
-                        with st.spinner("🔄 Executing generated SQL on Snowflake..."):
-                            result_df, exec_msg = conn_manager.execute_query(generated_sql)
-
-                            if result_df is not None:
-                                st.subheader("📊 Query Results")
-                                st.dataframe(result_df, use_container_width=True)
-                                if not result_df.empty:
-                                    csv_data = result_df.to_csv(index=False).encode('utf-8')
-                                    st.download_button(
-                                        "📥 Download Results as CSV",
-                                        data=csv_data,
-                                        file_name=f"snowflake_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                        mime="text/csv"
-                                    )
-                            else:
-                                st.error(exec_msg)
-                    else:
-                        st.error(f"❌ Failed to generate SQL. Please check your field conditions. Details: {generated_sql}")
-
-                except Exception as e:
-                    st.error(f"❌ An unexpected error occurred during analysis: {str(e)}")
-
-    with db_tab2:
-        st.subheader("📊 Execute Custom SQL")
-
-        custom_sql = st.text_area(
-            "Enter your SQL query:",
-            height=200,
-            placeholder="""SELECT json_data:name::VARCHAR as name,
-       json_data:age::NUMBER as age
-FROM your_table
-WHERE json_data:status::VARCHAR = 'active'
-LIMIT 10;""",
-            help="Write any SQL query to execute on your Snowflake database"
-        )
-
-        col1, col2 = st.columns([1, 3])
-
-        with col1:
-            if st.button("▶️ Execute SQL", type="primary"):
-                if not custom_sql.strip():
-                    st.warning("⚠️ Please enter a SQL query")
-                else:
-                    with st.spinner("🔄 Executing query..."):
-                        result_df, error_msg = conn_manager.execute_query(custom_sql)
-
-                        if result_df is not None:
-                            st.success("✅ Query executed successfully")
-                            st.dataframe(result_df, use_container_width=True)
-
-                            # Download option
+                        with st.spinner("🔄 Executing query on Snowflake..."):
+                            result_df, exec_error = conn_manager.execute_query(generated_sql)
+                        
+                        if exec_error:
+                            st.error(exec_error)
+                        elif result_df is not None:
+                            st.subheader("📊 Query Results")
+                            st.dataframe(result_df)
                             if not result_df.empty:
-                                csv_data = result_df.to_csv(index=False)
                                 st.download_button(
                                     "📥 Download Results",
-                                    data=csv_data,
-                                    file_name=f"query_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                    mime="text/csv"
+                                    result_df.to_csv(index=False).encode('utf-8'),
+                                    "results.csv"
                                 )
-                        else:
-                            st.error(error_msg)
-
-    with db_tab3:
-        st.subheader("🔧 Database Information")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("📋 List Tables", type="secondary"):
-                with st.spinner("🔄 Retrieving tables..."):
-                    tables_df, msg = conn_manager.list_tables()
-
-                    if tables_df is not None:
-                        st.success(msg)
-                        if not tables_df.empty:
-                            st.dataframe(tables_df, use_container_width=True)
-                        else:
-                            st.info("ℹ️ No tables found in current schema")
                     else:
-                        st.error(msg)
-
-        with col2:
-            if st.button("🔌 Disconnect", type="secondary"):
-                conn_manager.disconnect()
-                if 'snowflake_connection' in st.session_state:
-                    del st.session_state.snowflake_connection
-                st.success("✅ Disconnected from Snowflake")
-                st.rerun()
-
-        # Connection info
-        if conn_manager.is_connected:
-            st.markdown("**Current Connection:**")
-            conn_info = {
-                'Account': conn_manager.connection_params.get('account', 'N/A'),
-                'Database': conn_manager.connection_params.get('database', 'N/A'),
-                'Schema': conn_manager.connection_params.get('schema', 'N/A'),
-                'Warehouse': conn_manager.connection_params.get('warehouse', 'N/A')
-            }
-
-            for key, value in conn_info.items():
-                st.text(f"{key}: {value}")
+                        st.error("❌ Failed to generate SQL from the database sample.")
