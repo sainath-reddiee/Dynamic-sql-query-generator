@@ -363,16 +363,21 @@ class PythonSQLGenerator:
 
 
 def generate_sql_from_json_data(json_data: Any, table_name: str,
-                               json_column: str, field_conditions: str) -> str:
+                               json_column: str, field_conditions: str, 
+                               schema: Dict = None) -> str:
     """
-    Main function to generate SQL from JSON data
-    This replaces your Snowflake procedure call in Streamlit
+    Generate SQL with optional pre-analyzed schema
     """
     try:
         generator = PythonSQLGenerator()
-        schema = generator.analyze_json_for_sql(json_data)
-        sql = generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
+        if schema:
+            # Use provided schema instead of analyzing JSON
+            sql = generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
+        else:
+            # Analyze JSON data to create schema
+            analyzed_schema = generator.analyze_json_for_sql(json_data)
+            sql = generator.generate_dynamic_sql(table_name, json_column, field_conditions, analyzed_schema)
         return sql
     except Exception as e:
-        logger.error(f"Failed to generate SQL from JSON data: {e}")
+        logger.error(f"Failed to generate SQL: {e}")
         return f"-- Error: Failed to generate SQL\n-- {str(e)}"
