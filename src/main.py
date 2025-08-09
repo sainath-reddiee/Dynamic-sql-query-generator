@@ -582,6 +582,17 @@ def main():
                                     file_name=f"generated_sql_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
                                     mime="text/plain"
                                 )
+
+                                # Mocked query result for pure python approach
+                                st.markdown("#### Mocked Query Results:")
+                                st.info("This is a mocked result to demonstrate the output format. In a real environment, this would be the result of executing the query on Snowflake.")
+                                mock_data = {
+                                    'NAME': ['example_user'],
+                                    'AGE': [30]
+                                }
+                                mock_df = pd.DataFrame(mock_data)
+                                st.dataframe(mock_df, use_container_width=True)
+
                             except Exception as e:
                                 st.error(f"❌ Error generating SQL: {str(e)}")
                         else:
