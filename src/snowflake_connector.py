@@ -90,41 +90,57 @@ class SnowflakeConnectionManager:
         except Exception as e:
             return None, f"❌ Could not describe table: {e}"
 
-    def get_json_sample(self, table_name: str, json_column: str) -> Tuple[Any, Optional[str]]:
-        """Fetches a single, non-null JSON record from a table column."""
+    def get_json_sample_and_analyze(self, table_name: str, json_column: str) -> Tuple[Any, Optional[str]]:
+        """
+        Fetches a sample of JSON records, merges their schemas, and returns a composite schema.
+        """
         if not self.is_connected:
             return None, "❌ Not connected to database"
         try:
-            sql = f"SELECT {json_column} FROM {table_name} WHERE {json_column} IS NOT NULL LIMIT 1;"
+            # Fetch up to 100 random records for a more robust analysis
+            sql = f"SELECT {json_column} FROM {table_name} WHERE {json_column} IS NOT NULL SAMPLE (100 ROWS);"
             df, error = self.execute_query(sql)
             if error:
                 return None, error
-            if df is not None and not df.empty:
-                sample_str = df.iloc[0][json_column]
-                return json.loads(sample_str), None
-            return None, "❌ No non-null JSON data found in the specified column."
+            if df is None or df.empty:
+                return None, "❌ No non-null JSON data found in the specified column."
+
+            # Merge schemas from all sampled records
+            composite_schema = {}
+            for index, row in df.iterrows():
+                try:
+                    record_json = json.loads(row[json_column])
+                    record_schema = analyze_json_structure(record_json)
+                    # Merge the new schema into the composite one
+                    composite_schema.update(record_schema)
+                except (json.JSONDecodeError, TypeError):
+                    # Skip rows that are not valid JSON
+                    continue
+            
+            if not composite_schema:
+                 return None, "❌ Could not find any valid JSON records in the sample."
+
+            return composite_schema, None
         except Exception as e:
-            return None, f"❌ Failed to fetch or parse JSON sample: {e}"
+            return None, f"❌ Failed to fetch or analyze JSON sample: {e}"
 
 
 def render_snowflake_connection_ui() -> Optional[SnowflakeConnectionManager]:
-    # ... (This function remains the same)
     if not SNOWFLAKE_AVAILABLE:
         st.error("❌ **Snowflake Connector Not Available**")
         return None
 
     with st.form("snowflake_connection_form"):
-        # ... (form fields)
         account = st.text_input("Account Identifier*")
         user = st.text_input("Username*")
         password = st.text_input("Password*", type="password")
         warehouse = st.text_input("Warehouse*")
         database = st.text_input("Database*")
-        schema = st.text_input("Schema*", value="PUBLIC")
+        schema_name = st.text_input("Schema*", value="PUBLIC")
         
         submitted = st.form_submit_button("🔗 Connect")
         if submitted:
-            params = {"account": account, "user": user, "password": password, "warehouse": warehouse, "database": database, "schema": schema}
+            params = {"account": account, "user": user, "password": password, "warehouse": warehouse, "database": database, "schema": schema_name}
             if not all(params.values()):
                 st.error("Please fill all required fields.")
                 return None
@@ -146,11 +162,9 @@ def render_snowflake_connection_ui() -> Optional[SnowflakeConnectionManager]:
 def render_snowflake_operations_ui(conn_manager: SnowflakeConnectionManager):
     """Render UI for Snowflake database operations with the new workflow."""
     
-    # Step 1: Get table name
     table_name = st.text_input("Enter Snowflake Table Name:", key="db_table_name_input")
 
     if table_name:
-        # Step 2: Get JSON columns from the table
         json_columns, error = conn_manager.get_json_columns(table_name)
         if error:
             st.error(error)
@@ -159,24 +173,29 @@ def render_snowflake_operations_ui(conn_manager: SnowflakeConnectionManager):
             st.warning(f"No VARIANT, OBJECT, or ARRAY columns found in table `{table_name}`.")
             return
 
-        # Step 3: Select JSON column
         json_column = st.selectbox("Select the JSON column to analyze:", json_columns)
 
         if json_column:
-            # Step 4: Fetch sample data and analyze it
-            with st.spinner(f"Fetching sample record from `{json_column}`..."):
-                sample_json, error = conn_manager.get_json_sample(table_name, json_column)
+            # The analysis now happens inside this block
+            if st.button("Analyze Table Column", key="analyze_button"):
+                with st.spinner(f"Fetching and analyzing up to 100 sample records from `{json_column}`..."):
+                    composite_schema, error = conn_manager.get_json_sample_and_analyze(table_name, json_column)
+                
+                if error:
+                    st.error(error)
+                    st.session_state.composite_schema = None
+                elif composite_schema:
+                    st.success("✅ Successfully analyzed the data structure.")
+                    st.session_state.composite_schema = composite_schema
+                else:
+                    st.warning("Could not generate a schema from the sampled data.")
             
-            if error:
-                st.error(error)
-                return
-            
-            if sample_json:
-                st.success("✅ Successfully fetched a sample record for analysis.")
-                with st.expander("View Sample Data"):
-                    st.json(sample_json)
+            # The rest of the UI depends on the schema being in the session state
+            if 'composite_schema' in st.session_state and st.session_state.composite_schema:
+                schema = st.session_state.composite_schema
+                with st.expander("View Analyzed Schema (Composite)"):
+                    st.json(schema)
 
-                # Step 5: Get field conditions and generate SQL
                 field_conditions = st.text_area(
                     "Field Conditions:",
                     height=100,
@@ -190,8 +209,9 @@ def render_snowflake_operations_ui(conn_manager: SnowflakeConnectionManager):
                         return
 
                     with st.spinner("🔄 Generating SQL based on database schema..."):
+                        # Note: We pass a dummy JSON object here because the schema is what matters
                         generated_sql = generate_sql_from_json_data(
-                            sample_json, table_name, json_column, field_conditions
+                            {}, table_name, json_column, field_conditions, schema
                         )
                     
                     if generated_sql and not generated_sql.strip().startswith("-- Error"):
