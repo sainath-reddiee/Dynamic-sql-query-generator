@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 import os
 from python_sql_generator import generate_sql_from_json_data
-from snowflake_connector import render_snowflake_connection_ui, render_snowflake_operations_ui
+from enhanced_snowflake_connector import EnhancedSnowflakeConnectionManager, render_enhanced_performance_info, render_performance_metrics
 
 # Import from our modules
 from json_analyzer import analyze_json_structure
