@@ -33,7 +33,8 @@ else:
 
 # Import and run the main app
 try:
-    from src.main import main
+    # ** THE FIX IS HERE: Removed "src." from the import **
+    from main import main
     
     if __name__ == "__main__":
         main()
