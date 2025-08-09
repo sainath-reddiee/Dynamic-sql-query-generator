@@ -211,7 +211,7 @@ def render_snowflake_operations_ui(conn_manager: SnowflakeConnectionManager):
                     with st.spinner("🔄 Generating SQL based on database schema..."):
                         # Note: We pass a dummy JSON object here because the schema is what matters
                         generated_sql = generate_sql_from_json_data(
-                            {}, table_name, json_column, field_conditions, schema
+                            {}, table_name, json_column, field_conditions
                         )
                     
                     if generated_sql and not generated_sql.strip().startswith("-- Error"):
