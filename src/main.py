@@ -7,6 +7,8 @@ from datetime import datetime
 import logging
 import os
 from python_sql_generator import generate_sql_from_json_data
+from python_sql_generator import generate_sql_from_json_data
+from snowflake_connector import render_snowflake_connection_ui, render_snowflake_operations_ui
 
 # Import from our modules
 from json_analyzer import analyze_json_structure
@@ -497,140 +499,205 @@ def main():
             with tab6:
                 st.markdown('<h2 class="section-header">⚡ SQL Generator</h2>', unsafe_allow_html=True)
                 
-                # Procedure Parameters Section
-                col1, col2 = st.columns([1, 1])
+                # Option selector
+                st.markdown("""
+                <div style="background: linear-gradient(145deg, #fff3e0, #f8f9fa); padding: 1rem; border-radius: 10px; border: 1px solid #ffb74d; margin-bottom: 1.5rem;">
+                    <h4 style="color: #f57c00; margin-bottom: 0.5rem;">🎯 Choose Your Approach</h4>
+                    <p style="margin-bottom: 0;">Select how you want to generate and execute your SQL queries:</p>
+                </div>
+                """, unsafe_allow_html=True)
                 
-                with col1:
-                    st.subheader("🧪 Query Parameters")
-                    
-                    # Input for table and column names
-                    table_name = st.text_input(
-                        "Table Name:",
-                        placeholder="your_schema.your_table",
-                        help="Full table name including schema"
-                    )
-                    
-                    json_column_name = st.text_input(
-                        "JSON Column Name:",
-                        placeholder="json_data",
-                        help="Name of the column containing JSON data"
-                    )
-                    
-                    field_conditions = st.text_area(
-                        "Field Conditions:",
-                        height=100,
-                        help="Specify fields and conditions for the dynamic SQL",
-                        placeholder="e.g., name, age[>:18], status[=:active]"
-                    )
-                    
-                    # Generate SQL button
-                    generate_sql_btn = st.button("🚀 Generate SQL", type="primary")
+                approach = st.radio(
+                    "Select SQL Generation Method:",
+                    ["🐍 Pure Python (Instant)", "🏔️ Snowflake Database (Execute)"],
+                    help="""
+                    Pure Python: Generate SQL instantly without database connection
+                    Snowflake Database: Connect to your database and execute queries directly
+                    """
+                )
                 
-                with col2:
-                    st.subheader("💡 Examples Based on Your Data")
-                    examples = generate_procedure_examples(schema)
-                    
-                    if examples:
-                        st.markdown("**Quick Examples (click to use):**")
-                        
-                        # Extract just the field conditions from examples for easier use
-                        queryable = find_queryable_fields(schema)
-                        if queryable:
-                            # Example 1: First 3 fields
-                            example_fields_1 = ", ".join([f['path'].split('.')[-1] for f in queryable[:3]])
-                            if st.button(f"📋 Basic: {example_fields_1}", key="ex1"):
-                                st.session_state.field_conditions = example_fields_1
-                                st.rerun()
-                            
-                            # Example 2: With conditions
-                            if len(queryable) > 1:
-                                field1 = queryable[0]['path'].split('.')[-1]
-                                field2 = queryable[1]['path'].split('.')[-1]
-                                example_with_conditions = f"{field1}, {field2}[IS NOT NULL]"
-                                if st.button(f"📋 Filtered: {example_with_conditions}", key="ex2"):
-                                    st.session_state.field_conditions = example_with_conditions
-                                    st.rerun()
-                            
-                            # Example 3: Array fields
-                            array_fields = [f for f in queryable if f['in_array']]
-                            if array_fields:
-                                array_example = ", ".join([f['path'].split('.')[-1] for f in array_fields[:2]])
-                                if st.button(f"📋 Arrays: {array_example}", key="ex3"):
-                                    st.session_state.field_conditions = array_example
-                                    st.rerun()
-                    
-                    # Use session state for field conditions if set
-                    if 'field_conditions' in st.session_state:
-                        field_conditions = st.session_state.field_conditions
-                        del st.session_state.field_conditions
+                st.markdown("---")
                 
-                # Generate SQL when button is clicked
-                if generate_sql_btn and all([table_name, json_column_name, field_conditions]):
-                    try:
-                        with st.spinner("🔄 Generating SQL from your JSON structure..."):
-                            generated_sql = generate_sql_from_json_data(
-                                json_data, table_name, json_column_name, field_conditions
-                            )
+                if approach == "🐍 Pure Python (Instant)":
+                    # Pure Python approach (existing working code)
+                    st.markdown("""
+                    <div style="background: linear-gradient(145deg, #e8f5e8, #f0f8f0); padding: 1rem; border-radius: 8px; border: 1px solid #81c784; margin-bottom: 1rem;">
+                        <h4 style="color: #2e7d32;">🐍 Pure Python SQL Generation</h4>
+                        <p style="margin-bottom: 0;">Generate SQL instantly from your JSON structure without needing database connection.</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Procedure Parameters Section
+                    col1, col2 = st.columns([1, 1])
+                    
+                    with col1:
+                        st.subheader("🧪 Query Parameters")
                         
-                        st.markdown("---")
-                        st.subheader("🎯 Generated SQL Query")
-                        st.code(generated_sql, language="sql")
-                        
-                        # Download generated SQL
-                        st.download_button(
-                            label="📥 Download Generated SQL",
-                            data=generated_sql,
-                            file_name=f"generated_sql_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
-                            mime="text/sql",
-                            key="download_generated_sql"
+                        # Input for table and column names
+                        table_name = st.text_input(
+                            "Table Name:",
+                            placeholder="your_schema.your_table",
+                            help="Full table name including schema",
+                            key="python_table_name"
                         )
                         
-                        # Show field analysis used
-                        with st.expander("🔍 Analysis Details"):
-                            st.markdown("**Fields analyzed from your JSON:**")
-                            analyzed_fields = []
-                            for path, details in schema.items():
-                                if details.get('is_queryable', False):
-                                    analyzed_fields.append({
-                                        'Field': path,
-                                        'Type': details['snowflake_type'],
-                                        'In Array': '✅' if details.get('in_array', False) else '❌',
-                                        'Sample': details.get('sample_value', 'N/A')[:50]
-                                    })
-                            
-                            if analyzed_fields:
-                                st.dataframe(pd.DataFrame(analyzed_fields), use_container_width=True)
+                        json_column_name = st.text_input(
+                            "JSON Column Name:",
+                            placeholder="json_data",
+                            help="Name of the column containing JSON data",
+                            key="python_json_column"
+                        )
                         
-                    except Exception as e:
-                        st.error(f"❌ Error generating SQL: {str(e)}")
-                        st.error("Please check your field conditions and try again.")
-                
-                elif generate_sql_btn:
-                    st.warning("⚠️ Please fill in all required fields (Table Name, JSON Column, Field Conditions)")
-                
-                # Show the equivalent Snowflake procedure call
-                st.markdown("---")
-                st.subheader("🏔️ Equivalent Snowflake Procedure Call")
-                
-                if all([table_name, json_column_name, field_conditions]):
-                    procedure_call = f"""CALL SAINATH.SNOW.DYNAMIC_SQL_LARGE_IMPROVED(
+                        field_conditions = st.text_area(
+                            "Field Conditions:",
+                            height=100,
+                            help="Specify fields and conditions for the dynamic SQL",
+                            placeholder="e.g., name, age[>:18], status[=:active]",
+                            key="python_field_conditions"
+                        )
+                        
+                        # Generate SQL button
+                        generate_sql_btn = st.button("🚀 Generate SQL", type="primary", key="python_generate")
+                    
+                    with col2:
+                        st.subheader("💡 Examples Based on Your Data")
+                        examples = generate_procedure_examples(schema)
+                        
+                        if examples:
+                            st.markdown("**Quick Examples (click to use):**")
+                            
+                            # Extract just the field conditions from examples for easier use
+                            queryable = find_queryable_fields(schema)
+                            if queryable:
+                                # Example 1: First 3 fields
+                                example_fields_1 = ", ".join([f['path'].split('.')[-1] for f in queryable[:3]])
+                                if st.button(f"📋 Basic: {example_fields_1}", key="python_ex1"):
+                                    st.session_state.python_field_conditions = example_fields_1
+                                    st.rerun()
+                                
+                                # Example 2: With conditions
+                                if len(queryable) > 1:
+                                    field1 = queryable[0]['path'].split('.')[-1]
+                                    field2 = queryable[1]['path'].split('.')[-1]
+                                    example_with_conditions = f"{field1}, {field2}[IS NOT NULL]"
+                                    if st.button(f"📋 Filtered: {example_with_conditions}", key="python_ex2"):
+                                        st.session_state.python_field_conditions = example_with_conditions
+                                        st.rerun()
+                                
+                                # Example 3: Array fields
+                                array_fields = [f for f in queryable if f['in_array']]
+                                if array_fields:
+                                    array_example = ", ".join([f['path'].split('.')[-1] for f in array_fields[:2]])
+                                    if st.button(f"📋 Arrays: {array_example}", key="python_ex3"):
+                                        st.session_state.python_field_conditions = array_example
+                                        st.rerun()
+                        
+                        # Use session state for field conditions if set
+                        if 'python_field_conditions' in st.session_state:
+                            field_conditions = st.session_state.python_field_conditions
+                            del st.session_state.python_field_conditions
+                    
+                    # Generate SQL when button is clicked
+                    if generate_sql_btn and all([table_name, json_column_name, field_conditions]):
+                        try:
+                            with st.spinner("🔄 Generating SQL from your JSON structure..."):
+                                generated_sql = generate_sql_from_json_data(
+                                    json_data, table_name, json_column_name, field_conditions
+                                )
+                            
+                            st.markdown("---")
+                            st.subheader("🎯 Generated SQL Query")
+                            st.code(generated_sql, language="sql")
+                            
+                            # Download generated SQL
+                            st.download_button(
+                                label="📥 Download Generated SQL",
+                                data=generated_sql,
+                                file_name=f"generated_sql_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
+                                mime="text/sql",
+                                key="python_download_sql"
+                            )
+                            
+                            # Show field analysis used
+                            with st.expander("🔍 Analysis Details"):
+                                st.markdown("**Fields analyzed from your JSON:**")
+                                analyzed_fields = []
+                                for path, details in schema.items():
+                                    if details.get('is_queryable', False):
+                                        analyzed_fields.append({
+                                            'Field': path,
+                                            'Type': details['snowflake_type'],
+                                            'In Array': '✅' if details.get('in_array', False) else '❌',
+                                            'Sample': details.get('sample_value', 'N/A')[:50]
+                                        })
+                                
+                                if analyzed_fields:
+                                    st.dataframe(pd.DataFrame(analyzed_fields), use_container_width=True)
+                            
+                        except Exception as e:
+                            st.error(f"❌ Error generating SQL: {str(e)}")
+                            st.error("Please check your field conditions and try again.")
+                    
+                    elif generate_sql_btn:
+                        st.warning("⚠️ Please fill in all required fields (Table Name, JSON Column, Field Conditions)")
+                    
+                    # Show the equivalent Snowflake procedure call
+                    st.markdown("---")
+                    st.subheader("🏔️ Equivalent Snowflake Procedure Call")
+                    
+                    if all([table_name, json_column_name, field_conditions]):
+                        procedure_call = f"""CALL SAINATH.SNOW.DYNAMIC_SQL_LARGE_IMPROVED(
     '{table_name}',
     '{json_column_name}',
     '{field_conditions}'
 );"""
-                    st.code(procedure_call, language="sql")
+                        st.code(procedure_call, language="sql")
+                        
+                        st.download_button(
+                            label="📥 Download Procedure Call",
+                            data=procedure_call,
+                            file_name=f"procedure_call_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
+                            mime="text/sql",
+                            key="python_download_proc"
+                        )
+                        
+                        st.info("💡 **Note:** The SQL above is generated directly from your JSON data. The procedure call shows the equivalent Snowflake stored procedure that would produce similar results.")
+                    else:
+                        st.info("Fill in the parameters above to see both the generated SQL and equivalent procedure call.")
+
+                else:  # Snowflake Database approach
+                    st.markdown("""
+                    <div style="background: linear-gradient(145deg, #e3f2fd, #f0f8ff); padding: 1rem; border-radius: 8px; border: 1px solid #64b5f6; margin-bottom: 1rem;">
+                        <h4 style="color: #1976d2;">🏔️ Snowflake Database Integration</h4>
+                        <p style="margin-bottom: 0;">Connect to your Snowflake database to execute queries directly and get real results.</p>
+                    </div>
+                    """, unsafe_allow_html=True)
                     
-                    st.download_button(
-                        label="📥 Download Procedure Call",
-                        data=procedure_call,
-                        file_name=f"procedure_call_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
-                        mime="text/sql",
-                        key="download_procedure_call"
-                    )
+                    # Step 1: Connection UI
+                    st.subheader("🔐 Step 1: Database Connection")
+                    conn_manager = render_snowflake_connection_ui()
                     
-                    st.info("💡 **Note:** The SQL above is generated directly from your JSON data. The procedure call shows the equivalent Snowflake stored procedure that would produce similar results.")
-                else:
-                    st.info("Fill in the parameters above to see both the generated SQL and equivalent procedure call.")
+                    # Step 2: Operations UI (only if connected)
+                    if conn_manager and conn_manager.is_connected:
+                        st.markdown("---")
+                        st.subheader("📊 Step 2: Database Operations")
+                        render_snowflake_operations_ui(conn_manager, json_data)
+                    else:
+                        st.markdown("---")
+                        st.info("👆 **Connect to your Snowflake database above to unlock database operations.**")
+                        
+                        # Show what's available after connection
+                        st.markdown("""
+                        <div style="background: linear-gradient(145deg, #f3e5f5, #f8f9fa); padding: 1rem; border-radius: 8px; border: 1px solid #ce93d8; margin-top: 1rem;">
+                            <h4 style="color: #7b1fa2;">🎯 Available After Connection</h4>
+                            <ul style="margin-bottom: 0;">
+                                <li>🧪 <strong>Quick Analysis</strong> - Upload your JSON and run analysis with your stored procedure</li>
+                                <li>📊 <strong>Custom Queries</strong> - Execute any SQL directly on your database</li>
+                                <li>🔧 <strong>Database Info</strong> - Browse tables and manage connections</li>
+                                <li>💾 <strong>Real Results</strong> - Get actual data from your database, not just SQL</li>
+                            </ul>
+                        </div>
+                        """, unsafe_allow_html=True)
         
         # Instructions and help
         if json_data is not None:
