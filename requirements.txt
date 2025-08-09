@@ -18,3 +18,19 @@ flake8>=6.0.0
 # Security and Monitoring
 cryptography>=41.0.0
 python-dateutil>=2.8.0
+
+# Core Snowflake connectivity
+snowflake-connector-python>=3.0.0
+snowflake-snowpark-python>=1.0.0
+
+# Performance optimization with Modin
+modin[all]>=0.20.0
+ray>=2.0.0
+
+# Security and encryption
+cryptography>=3.4.0
+pyOpenSSL>=22.0.0
+
+# Additional dependencies
+requests>=2.25.0
+pandas>=1.3.0
