@@ -361,6 +361,7 @@ def render_snowflake_operations_ui(conn_manager: SnowflakeConnectionManager, jso
                 try:
                     with st.spinner("🔄 Generating SQL from JSON data..."):
                         # **THE FIX IS HERE**: Use the local Python SQL generator
+                        # This function now uses the logic from your improved script
                         generated_sql = generate_sql_from_json_data(
                             json_data, table_name_db, json_column_db, field_conditions_db
                         )
