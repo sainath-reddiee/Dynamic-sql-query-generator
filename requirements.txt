@@ -34,3 +34,10 @@ pyOpenSSL>=22.0.0
 # Additional dependencies
 requests>=2.25.0
 pandas>=1.3.0
+streamlit>=1.28.0
+pandas>=1.5.0
+snowflake-connector-python>=3.0.0
+snowflake-sqlalchemy>=1.4.0
+python-dotenv>=1.0.0
+typing-extensions>=4.0.0
+
