@@ -7,13 +7,17 @@ from datetime import datetime
 import logging
 import os
 from python_sql_generator import generate_sql_from_json_data
+# Keep the enhanced connector for its class
 from enhanced_snowflake_connector import EnhancedSnowflakeConnectionManager, render_enhanced_performance_info, render_performance_metrics
+# Import the missing UI functions from the correct file
+from snowflake_connector import render_snowflake_connection_ui, render_snowflake_operations_ui
+
 
 # Import from our modules
 from json_analyzer import analyze_json_structure
 from utils import (
-    get_snowflake_type, find_arrays, find_nested_objects, 
-    find_queryable_fields, prettify_json, validate_json_input, 
+    get_snowflake_type, find_arrays, find_nested_objects,
+    find_queryable_fields, prettify_json, validate_json_input,
     export_analysis_results
 )
 from sql_generator import generate_procedure_examples, generate_sql_preview
