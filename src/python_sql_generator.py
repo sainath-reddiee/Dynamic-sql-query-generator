@@ -105,11 +105,26 @@ class PythonSQLGenerator:
             return []
 
         result = []
-        # Improved regex to handle nested brackets and commas correctly
-        fields = re.split(r',(?![^\[]*\])', conditions)
+        fields = []
+        current_field = []
+        bracket_count = 0
+
+        # Parse comma-separated fields with bracket handling
+        for char in conditions:
+            if char == '[':
+                bracket_count += 1
+            elif char == ']':
+                bracket_count -= 1
+            elif char == ',' and bracket_count == 0:
+                fields.append(''.join(current_field).strip())
+                current_field = []
+                continue
+            current_field.append(char)
+
+        if current_field:
+            fields.append(''.join(current_field).strip())
 
         for field in fields:
-            field = field.strip()
             if not field:
                 continue
 
@@ -124,14 +139,29 @@ class PythonSQLGenerator:
             # Parse conditions like: field[operator:value] or field[CAST:TYPE]
             if '[' in field and ']' in field:
                 base_field = field[:field.index('[')].strip()
-                operator_value = field[field.index('[')+1:field.rindex(']')]
+                operator_value = field[field.index('[')+1:field.index(']')]
                 condition['field'] = base_field
 
                 # Handle multiple subconditions
-                subconditions = re.split(r',(?![^\(]*\))', operator_value)
+                subconditions = []
+                current = []
+                nested_count = 0
+
+                for char in operator_value:
+                    if char == ',' and nested_count == 0:
+                        subconditions.append(''.join(current).strip())
+                        current = []
+                    else:
+                        if char == '(':
+                            nested_count += 1
+                        elif char == ')':
+                            nested_count -= 1
+                        current.append(char)
+
+                if current:
+                    subconditions.append(''.join(current).strip())
 
                 for subcond in subconditions:
-                    subcond = subcond.strip()
                     parts = [p.strip() for p in subcond.split(':')]
 
                     if len(parts) >= 2:
@@ -156,26 +186,29 @@ class PythonSQLGenerator:
         return result
 
     def find_field_in_schema(self, schema: Dict, target_field: str) -> List[Tuple[str, Dict]]:
-        """
-        Find field in schema with precise matching.
-        This now only finds exact matches for the field name at the end of a path.
-        """
+        """Find field in schema - matches your procedure's field resolution"""
         matching_paths = []
-        
-        # **THE FIX IS HERE**: This logic is now more precise
-        for path, info in schema.items():
-            # Match if the last part of the path is the target field
-            if path.split('.')[-1] == target_field:
-                matching_paths.append((path, info))
 
-        if not matching_paths:
+        # Find all paths that end with the target field
+        candidates = []
+        for path, info in schema.items():
+            path_parts = path.split('.')
+            if path_parts[-1] == target_field or path == target_field:
+                candidates.append((path, info))
+
+        if not candidates:
+            # Try partial matching
+            for path, info in schema.items():
+                if target_field.lower() in path.lower():
+                    candidates.append((path, info))
+
+        if not candidates:
             return []
 
-        # Prefer shorter paths (less nested) if multiple matches are found
-        matching_paths.sort(key=lambda x: x[1].get('depth', 0))
+        # Prefer shorter paths (less nested)
+        candidates.sort(key=lambda x: (x[1].get('depth', 0), len(x[1].get('array_hierarchy', []))))
 
-        return matching_paths[:1]  # Return only the best match
-
+        return candidates[:1]  # Return best match
 
     def build_array_flattening(self, array_paths: List[str], json_column: str) -> Tuple[str, Dict[str, str]]:
         """Build LATERAL FLATTEN clauses - matches your procedure logic"""
@@ -359,25 +392,20 @@ class PythonSQLGenerator:
 
         except Exception as e:
             logger.error(f"Error generating SQL: {e}")
-            return f"-- Error generating SQL: {str(e)}\n-- Please check your field conditions and try again."
+            return f"-- Error generating SQL: {str(e)}\\n-- Please check your field conditions and try again."
 
 
 def generate_sql_from_json_data(json_data: Any, table_name: str,
-                               json_column: str, field_conditions: str, 
-                               schema: Dict = None) -> str:
+                               json_column: str, field_conditions: str) -> str:
     """
-    Generate SQL with optional pre-analyzed schema
+    Main function to generate SQL from JSON data
+    This replaces your Snowflake procedure call in Streamlit
     """
     try:
         generator = PythonSQLGenerator()
-        if schema:
-            # Use provided schema instead of analyzing JSON
-            sql = generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
-        else:
-            # Analyze JSON data to create schema
-            analyzed_schema = generator.analyze_json_for_sql(json_data)
-            sql = generator.generate_dynamic_sql(table_name, json_column, field_conditions, analyzed_schema)
+        schema = generator.analyze_json_for_sql(json_data)
+        sql = generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
         return sql
     except Exception as e:
-        logger.error(f"Failed to generate SQL: {e}")
-        return f"-- Error: Failed to generate SQL\n-- {str(e)}"
+        logger.error(f"Failed to generate SQL from JSON data: {e}")
+        return f"-- Error: Failed to generate SQL\\n-- {str(e)}"
