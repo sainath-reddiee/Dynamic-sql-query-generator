@@ -1,6 +1,6 @@
 """
-Pure Python implementation of dynamic SQL generation
-Replicates the logic from your Snowflake stored procedure
+Fixed Pure Python implementation of dynamic SQL generation
+Corrects the array flattening logic for nested structures
 """
 import json
 from typing import Dict, Any, List, Tuple, Optional
@@ -31,19 +31,56 @@ class PythonSQLGenerator:
         return value
 
     def analyze_json_for_sql(self, json_obj: Any, parent_path: str = "") -> Dict[str, Dict]:
-        """Analyze JSON and create SQL-ready schema - matches your Snowflake procedure logic"""
+        """Analyze JSON and create SQL-ready schema - FIXED for proper array hierarchy tracking"""
         schema = {}
 
-        def traverse(obj: Any, path: str = "", array_hierarchy: List[str] = [], depth: int = 0):
+        def traverse(obj: Any, path: str = "", array_hierarchy: List[str] = [], depth: int = 0, is_root_array: bool = False):
             if depth > 10:  # Prevent infinite recursion
                 return
 
-            if isinstance(obj, dict):
+            # FIXED: Handle root-level arrays properly
+            if isinstance(obj, list) and obj:
+                # If this is the root array, don't add it as a separate path
+                if not is_root_array and path:
+                    schema[path] = {
+                        "type": "array",
+                        "snowflake_type": "ARRAY",
+                        "array_hierarchy": array_hierarchy.copy(),
+                        "depth": len(path.split('.')) if path else 0,
+                        "full_path": path,
+                        "parent_path": ".".join(path.split('.')[:-1]) if '.' in path else "",
+                        "is_queryable": True,
+                        "sample_value": f"Array with {len(obj)} items",
+                        "is_root_array": is_root_array
+                    }
+
+                # FIXED: Properly track array hierarchy for nested processing
+                new_hierarchy = array_hierarchy.copy()
+                if path and not is_root_array:  # Don't add empty path for root array
+                    new_hierarchy.append(path)
+                elif is_root_array:
+                    new_hierarchy.append("")  # Root array marker
+
+                # Process array elements (sample up to 3)
+                sample_size = min(len(obj), 3)
+                for i in range(sample_size):
+                    if isinstance(obj[i], (dict, list)):
+                        traverse(obj[i], path if is_root_array else path, new_hierarchy, depth + 1, False)
+                    else:
+                        if path in schema:
+                            schema[path]["item_type"] = type(obj[i]).__name__
+
+            elif isinstance(obj, dict):
                 for key, value in obj.items():
-                    new_path = f"{path}.{key}" if path else key
+                    # FIXED: Handle path construction for root arrays
+                    if is_root_array or not path:
+                        new_path = key
+                    else:
+                        new_path = f"{path}.{key}"
+                    
                     current_type = type(value).__name__
 
-                    # Enhanced schema with metadata (matching your procedure)
+                    # Enhanced schema with metadata
                     schema_entry = {
                         "type": current_type,
                         "snowflake_type": self.type_mapping.get(current_type, 'VARIANT'),
@@ -55,7 +92,7 @@ class PythonSQLGenerator:
                         "sample_value": str(value)[:100] if value is not None else "NULL"
                     }
 
-                    # Handle type conflicts (matching your procedure logic)
+                    # Handle type conflicts
                     if new_path in schema:
                         existing_type = schema[new_path]["type"]
                         if existing_type != current_type:
@@ -70,37 +107,18 @@ class PythonSQLGenerator:
                     else:
                         schema[new_path] = schema_entry
 
-                    traverse(value, new_path, array_hierarchy, depth + 1)
+                    traverse(value, new_path, array_hierarchy, depth + 1, False)
 
-            elif isinstance(obj, list) and obj:
-                # Add array info to schema
-                if path not in schema:
-                    schema[path] = {
-                        "type": "array",
-                        "snowflake_type": "ARRAY",
-                        "array_hierarchy": array_hierarchy.copy(),
-                        "depth": len(path.split('.')) if path else 0,
-                        "full_path": path,
-                        "parent_path": ".".join(path.split('.')[:-1]) if '.' in path else "",
-                        "is_queryable": True,
-                        "sample_value": f"Array with {len(obj)} items"
-                    }
-
-                new_hierarchy = array_hierarchy + [path]
-
-                # Process array elements (sample up to 3 like your procedure)
-                sample_size = min(len(obj), 3)
-                for i in range(sample_size):
-                    if isinstance(obj[i], (dict, list)):
-                        traverse(obj[i], path, new_hierarchy, depth + 1)
-                    else:
-                        schema[path]["item_type"] = type(obj[i]).__name__
-
-        traverse(json_obj, parent_path)
+        # FIXED: Check if root is an array
+        if isinstance(json_obj, list):
+            traverse(json_obj, "", [], 0, True)
+        else:
+            traverse(json_obj, parent_path)
+            
         return schema
 
     def parse_field_conditions(self, conditions: str) -> List[Dict]:
-        """Parse field conditions - replicates your Snowflake procedure logic"""
+        """Parse field conditions - handles the field parsing logic"""
         if not conditions or not conditions.strip():
             return []
 
@@ -186,18 +204,23 @@ class PythonSQLGenerator:
         return result
 
     def find_field_in_schema(self, schema: Dict, target_field: str) -> List[Tuple[str, Dict]]:
-        """Find field in schema - matches your procedure's field resolution"""
+        """FIXED: Find field in schema with better path resolution"""
         matching_paths = []
 
         # Find all paths that end with the target field
         candidates = []
         for path, info in schema.items():
             path_parts = path.split('.')
+            
+            # Exact match on field name
             if path_parts[-1] == target_field or path == target_field:
+                candidates.append((path, info))
+            # Check if field is in a nested path (like profile.contacts.type)
+            elif target_field in path_parts:
                 candidates.append((path, info))
 
         if not candidates:
-            # Try partial matching
+            # Try partial matching as fallback
             for path, info in schema.items():
                 if target_field.lower() in path.lower():
                     candidates.append((path, info))
@@ -205,50 +228,126 @@ class PythonSQLGenerator:
         if not candidates:
             return []
 
-        # Prefer shorter paths (less nested)
-        candidates.sort(key=lambda x: (x[1].get('depth', 0), len(x[1].get('array_hierarchy', []))))
+        # FIXED: Better sorting - prefer exact matches first, then by depth
+        def sort_key(item):
+            path, info = item
+            path_parts = path.split('.')
+            exact_match = path_parts[-1] == target_field
+            depth = info.get('depth', 0)
+            array_depth = len(info.get('array_hierarchy', []))
+            
+            # Prioritize: exact match, then fewer arrays, then less depth
+            return (not exact_match, array_depth, depth)
 
+        candidates.sort(key=sort_key)
         return candidates[:1]  # Return best match
 
-    def build_array_flattening(self, array_paths: List[str], json_column: str) -> Tuple[str, Dict[str, str]]:
-        """Build LATERAL FLATTEN clauses - matches your procedure logic"""
+    def build_array_flattening(self, array_paths: List[str], json_column: str, schema: Dict) -> Tuple[str, Dict[str, str]]:
+        """FIXED: Build LATERAL FLATTEN clauses with correct hierarchy handling"""
         flatten_clauses = []
         array_aliases = {}
 
-        # Sort by depth to ensure proper nesting order
-        sorted_array_paths = sorted(set(array_paths), key=lambda x: (len(x.split('.')), x))
+        # FIXED: Filter out empty paths and handle root arrays
+        valid_array_paths = []
+        has_root_array = False
+        
+        for path in array_paths:
+            if path == "":  # Root array marker
+                has_root_array = True
+                valid_array_paths.append(path)
+            elif path and path in schema and schema[path].get('type') == 'array':
+                valid_array_paths.append(path)
+
+        # Sort by depth to ensure proper nesting order, but handle root array first
+        def sort_array_paths(path):
+            if path == "":  # Root array comes first
+                return (-1, "")
+            return (len(path.split('.')), path)
+        
+        sorted_array_paths = sorted(set(valid_array_paths), key=sort_array_paths)
 
         for idx, array_path in enumerate(sorted_array_paths):
             alias = f"f{idx + 1}"
             array_aliases[array_path] = alias
 
-            # Check for parent-child relationship
-            parent_path = None
-            for potential_parent in sorted_array_paths:
-                if (array_path.startswith(potential_parent + '.') and
-                    potential_parent != array_path and
-                    array_path.count('.') == potential_parent.count('.') + 1):
-                    parent_path = potential_parent
-                    break
-
-            if parent_path and parent_path in array_aliases:
-                parent_alias = array_aliases[parent_path]
-                relative_path = array_path[len(parent_path) + 1:]
-                safe_relative_path = self.sanitize_input(relative_path)
-                flatten_clauses.append(f", LATERAL FLATTEN(input => {parent_alias}.value:{safe_relative_path}) {alias}")
+            if array_path == "":  # Root array
+                flatten_clauses.append(f", LATERAL FLATTEN(input => {json_column}) {alias}")
             else:
-                safe_array_path = self.sanitize_input(array_path)
-                flatten_clauses.append(f", LATERAL FLATTEN(input => {json_column}:{safe_array_path}) {alias}")
+                # FIXED: Find the correct parent for nested arrays
+                parent_ref = None
+                
+                # Check if this array is nested within another flattened array
+                for potential_parent in sorted_array_paths[:idx]:  # Only check already processed parents
+                    if potential_parent == "":  # Root array parent
+                        if not array_path.startswith('.'):  # This array is directly under root objects
+                            parent_ref = f"{array_aliases[potential_parent]}.value"
+                            break
+                    elif array_path.startswith(potential_parent + '.'):
+                        parent_alias = array_aliases[potential_parent]
+                        parent_ref = f"{parent_alias}.value"
+                        break
+
+                if parent_ref:
+                    # Get the relative path from the parent
+                    if array_path.count('.') == 1:  # Direct child of root
+                        relative_path = array_path
+                    else:
+                        # Find relative path from parent
+                        for potential_parent in sorted_array_paths[:idx]:
+                            if potential_parent != "" and array_path.startswith(potential_parent + '.'):
+                                relative_path = array_path[len(potential_parent) + 1:]
+                                break
+                        else:
+                            relative_path = array_path
+                    
+                    safe_relative_path = self.sanitize_input(relative_path)
+                    flatten_clauses.append(f", LATERAL FLATTEN(input => {parent_ref}:{safe_relative_path}) {alias}")
+                else:
+                    # No parent, flatten directly from json column
+                    safe_array_path = self.sanitize_input(array_path)
+                    flatten_clauses.append(f", LATERAL FLATTEN(input => {json_column}:{safe_array_path}) {alias}")
 
         return ''.join(flatten_clauses), array_aliases
 
     def build_field_reference(self, field_path: str, json_column: str,
                             array_aliases: Dict[str, str], array_hierarchy: List[str]) -> str:
-        """Build field reference path - matches your procedure logic"""
+        """FIXED: Build field reference path with correct array handling"""
         if not array_hierarchy:
             safe_field_path = self.sanitize_input(field_path)
             return f"{json_column}:{safe_field_path}"
 
+        # FIXED: Handle root array case
+        if "" in array_hierarchy:  # Root array is in hierarchy
+            root_alias = array_aliases.get("", "")
+            if root_alias:
+                # For root array, the field path is relative to each array element
+                if len(array_hierarchy) == 1:  # Only root array
+                    safe_field_path = self.sanitize_input(field_path)
+                    return f"{root_alias}.value:{safe_field_path}"
+                else:
+                    # Multiple arrays in hierarchy - use the deepest one
+                    deepest_array = None
+                    for arr_path in reversed(array_hierarchy):
+                        if arr_path != "" and arr_path in array_aliases:
+                            deepest_array = arr_path
+                            break
+                    
+                    if deepest_array:
+                        deepest_alias = array_aliases[deepest_array]
+                        # Calculate relative path from deepest array
+                        if field_path.startswith(deepest_array + '.'):
+                            field_suffix = field_path[len(deepest_array) + 1:]
+                        else:
+                            field_suffix = field_path.split('.')[-1]  # Just the field name
+                        
+                        safe_field_suffix = self.sanitize_input(field_suffix)
+                        return f"{deepest_alias}.value:{safe_field_suffix}"
+                    else:
+                        # Fallback to root array
+                        safe_field_path = self.sanitize_input(field_path)
+                        return f"{root_alias}.value:{safe_field_path}"
+
+        # Original logic for non-root arrays
         deepest_array = array_hierarchy[-1]
         field_suffix = field_path[len(deepest_array) + 1:] if field_path.startswith(deepest_array + '.') else field_path
 
@@ -263,7 +362,7 @@ class PythonSQLGenerator:
             return f"{json_column}:{safe_field_path}"
 
     def sanitize_value(self, value: Any, field_type: str) -> str:
-        """Sanitize values for SQL - matches your procedure logic"""
+        """Sanitize values for SQL"""
         if value is None:
             return "NULL"
 
@@ -293,7 +392,7 @@ class PythonSQLGenerator:
 
     def generate_dynamic_sql(self, table_name: str, json_column: str,
                            field_conditions: str, schema: Dict) -> str:
-        """Generate complete SQL query - matches your Snowflake procedure logic"""
+        """FIXED: Generate complete SQL query with proper array handling"""
         try:
             conditions = self.parse_field_conditions(field_conditions)
 
@@ -317,8 +416,8 @@ class PythonSQLGenerator:
                         array_hierarchy = info.get('array_hierarchy', [])
                         all_array_paths.update(array_hierarchy)
 
-            # Build flattening clauses
-            flatten_clauses, array_aliases = self.build_array_flattening(list(all_array_paths), json_column)
+            # FIXED: Build flattening clauses with schema context
+            flatten_clauses, array_aliases = self.build_array_flattening(list(all_array_paths), json_column, schema)
 
             # Process each condition
             for condition in conditions:
@@ -392,13 +491,13 @@ class PythonSQLGenerator:
 
         except Exception as e:
             logger.error(f"Error generating SQL: {e}")
-            return f"-- Error generating SQL: {str(e)}\\n-- Please check your field conditions and try again."
+            return f"-- Error generating SQL: {str(e)}\n-- Please check your field conditions and try again."
 
 
 def generate_sql_from_json_data(json_data: Any, table_name: str,
                                json_column: str, field_conditions: str) -> str:
     """
-    Main function to generate SQL from JSON data
+    FIXED: Main function to generate SQL from JSON data
     This replaces your Snowflake procedure call in Streamlit
     """
     try:
@@ -408,4 +507,4 @@ def generate_sql_from_json_data(json_data: Any, table_name: str,
         return sql
     except Exception as e:
         logger.error(f"Failed to generate SQL from JSON data: {e}")
-        return f"-- Error: Failed to generate SQL\\n-- {str(e)}"
+        return f"-- Error: Failed to generate SQL\n-- {str(e)}"
