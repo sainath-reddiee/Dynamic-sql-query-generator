@@ -1,10 +1,11 @@
 """
-UNIVERSAL Database-driven JSON analysis fix
+FIXED UNIVERSAL Database-driven JSON analysis 
+Merges the FIXED enhanced features into the universal analyzer
 This will work for BOTH:
 1. Standard Snowflake Connection (Tab 2)  
 2. Enhanced Snowflake Connection (Tab 3)
 
-Replace your existing db_json_analyzer.py with this file
+Replace your existing universal_db_analyzer.py with this FIXED version
 """
 import streamlit as st
 import json
@@ -131,8 +132,8 @@ def resolve_table_name_universal(conn_manager, table_name: str) -> str:
 def analyze_database_json_schema_universal(conn_manager, table_name: str, json_column: str, 
                                          sample_size: int = 10) -> Tuple[Optional[Dict], Optional[str], Dict]:
     """
-    UNIVERSAL JSON schema analysis that works with both connector types
-    Uses the FIXED SQL generator logic for consistency
+    FIXED UNIVERSAL JSON schema analysis that works with both connector types
+    Uses the FIXED SQL generator logic for consistency - NO MORE SAMPLE PREFIXES!
     """
     metadata = {
         'table_name': table_name,
@@ -165,7 +166,7 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
         progress_bar.progress(40)
 
         # Step 2: Analyze JSON structure using the FIXED SQL generator logic
-        status_text.text("🔬 Analyzing JSON structure with FIXED logic...")
+        status_text.text("🔬 Analyzing JSON structure with FIXED logic (no sample prefixes)...")
 
         # CRITICAL FIX: Import the corrected SQL generator
         from python_sql_generator import PythonSQLGenerator
@@ -173,14 +174,9 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
         # Create analyzer instance
         generator = PythonSQLGenerator()
         
-        # Use the first sample as the base structure
-        if len(json_samples) == 1:
-            combined_json = json_samples[0]
-        else:
-            combined_json = json_samples[0]
-
-        # FIXED: Use the same analyze_json_for_sql method that works in Python mode
-        combined_schema = generator.analyze_json_for_sql(combined_json)
+        # FIXED: Use the first sample as the base structure WITHOUT sample prefixes
+        base_json = json_samples[0]
+        combined_schema = generator.analyze_json_for_sql(base_json)  # NO parent_path!
 
         # Process additional samples for enhanced metadata
         unique_structures = set()
@@ -193,8 +189,8 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
                 progress_percentage = 40 + (i / len(json_samples)) * 40
                 progress_bar.progress(int(progress_percentage))
 
-                # Analyze additional samples
-                sample_schema = generator.analyze_json_for_sql(json_sample, parent_path=f"sample_{i}")
+                # CRITICAL FIX: Analyze additional samples WITHOUT adding sample prefix
+                sample_schema = generator.analyze_json_for_sql(json_sample)  # NO parent_path!
 
                 # Track unique structures
                 structure_signature = str(sorted(sample_schema.keys()))
@@ -259,6 +255,18 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
         if not combined_schema:
             return None, "❌ No valid JSON schema could be extracted from database samples", metadata
 
+        # VERIFICATION: Check for sample prefixes and alert if found
+        sample_prefix_paths = [path for path in combined_schema.keys() if "sample_" in path]
+        if sample_prefix_paths:
+            st.error(f"🚨 **BUG DETECTED:** Found {len(sample_prefix_paths)} paths with 'sample_' prefixes!")
+            for path in sample_prefix_paths[:3]:  # Show first 3
+                st.code(f"❌ {path}", language="text")
+        else:
+            st.success("🎯 **VERIFIED:** All JSON paths are clean (no 'sample_' prefixes)")
+            clean_paths = list(combined_schema.keys())[:5]  # Show first 5 paths
+            for path in clean_paths:
+                st.code(f"✅ {path}", language="text")
+
         return combined_schema, None, metadata
 
     except Exception as e:
@@ -271,8 +279,8 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
 def generate_database_driven_sql(conn_manager, table_name: str, json_column: str, 
                                field_conditions: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    UNIVERSAL database-driven SQL generation that works with both connector types
-    FIXED: Now uses the corrected SQL logic with proper array flattening
+    FIXED UNIVERSAL database-driven SQL generation that works with both connector types
+    Uses the corrected SQL logic with proper array flattening - NO SAMPLE PREFIXES!
     """
     try:
         # Step 1: Analyze JSON schema from database
@@ -286,7 +294,7 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
             return None, f"Schema analysis failed: {schema_error}"
 
         # Display analysis results
-        st.success("✅ **Step 1 Complete:** JSON Schema Analysis")
+        st.success("✅ **Step 1 Complete:** JSON Schema Analysis (FIXED - No Sample Prefixes)")
 
         # Show metrics
         col1, col2, col3, col4 = st.columns(4)
@@ -303,7 +311,7 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
         st.info(f"📋 **Analyzed Table:** `{metadata['resolved_table_name']}`")
 
         # Step 2: Generate SQL using the FIXED logic
-        st.info("🔨 **Step 2:** Generating SQL with FIXED array flattening logic...")
+        st.info("🔨 **Step 2:** Generating SQL with FIXED array flattening logic (no sample prefixes)...")
 
         # CRITICAL FIX: Use the corrected SQL generator
         from python_sql_generator import PythonSQLGenerator
@@ -321,11 +329,16 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
         if generated_sql.strip().startswith("-- Error"):
             return None, f"SQL generation failed: {generated_sql}"
 
-        st.success("✅ **Step 2 Complete:** SQL Generated with FIXED Array Flattening Logic!")
-        
-        # Show fix confirmation
-        st.info("🎯 **FIXED:** This SQL now uses the same proven logic as Python mode with proper LATERAL FLATTEN handling for both Standard and Enhanced connectors!")
+        # VERIFICATION: Check generated SQL for sample prefixes
+        if "sample_0" in generated_sql or "sample_1" in generated_sql:
+            st.error("🚨 **BUG ALERT:** Generated SQL contains 'sample_' prefixes - there's still an issue!")
+            st.code(generated_sql, language="sql")
+            return None, "Generated SQL contains invalid 'sample_' prefixes"
+        else:
+            st.success("🎯 **VERIFIED:** Generated SQL is clean (no 'sample_' prefixes)")
 
+        st.success("✅ **Step 2 Complete:** Clean SQL Generated with FIXED Array Flattening Logic!")
+        
         return generated_sql, None
 
     except Exception as e:
@@ -333,11 +346,11 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
         return None, f"❌ Database-driven analysis failed: {str(e)}"
 
 
-# Alias for enhanced version (for compatibility)
+# Enhanced version - now just uses the fixed universal version
 def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_column: str, 
                                         field_conditions: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    Enhanced version that's now just an alias to the universal fixed version
+    Enhanced version that's now just an alias to the universal FIXED version
     """
     return generate_database_driven_sql(conn_manager, table_name, json_column, field_conditions)
 
@@ -345,16 +358,23 @@ def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_co
 def analyze_database_json_schema_enhanced(conn_manager, table_name: str, json_column: str, 
                                         sample_size: int = 10) -> Tuple[Optional[Dict], Optional[str], Dict]:
     """
-    Enhanced version that's now just an alias to the universal fixed version
+    Enhanced version that's now just an alias to the universal FIXED version
     """
     return analyze_database_json_schema_universal(conn_manager, table_name, json_column, sample_size)
 
 
 def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
     """
-    Enhanced preview of the discovered JSON schema
+    Enhanced preview of the discovered JSON schema with VERIFICATION
     """
-    st.markdown("### 📊 Discovered JSON Schema Analysis")
+    st.markdown("### 📊 Discovered JSON Schema Analysis (FIXED Universal Version)")
+
+    # VERIFICATION: Check for sample prefixes in schema
+    sample_prefix_count = sum(1 for path in schema.keys() if "sample_" in path)
+    if sample_prefix_count > 0:
+        st.error(f"🚨 **BUG DETECTED:** {sample_prefix_count} paths contain 'sample_' prefixes!")
+    else:
+        st.success("🎯 **VERIFIED:** All paths are clean (no sample prefixes)")
 
     # Create tabs for different views
     tab1, tab2, tab3 = st.tabs(["🏷️ **Field Details**", "📊 **Frequency Chart**", "🔍 **Type Distribution**"])
@@ -376,8 +396,12 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
                     val_str = val_str[:47] + "..."
                 readable_samples.append(val_str)
 
+            # VERIFICATION: Check for sample prefixes
+            path_status = "✅ Clean" if "sample_" not in path else "❌ Has Sample Prefix"
+
             schema_summary.append({
                 'Field Path': path,
+                'Path Status': path_status,
                 'Snowflake Type': field_type,
                 'Frequency': f"{frequency:.1%}",
                 'Found In Samples': f"{found_in}/{metadata['sample_size']}",
@@ -401,7 +425,7 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
         st.download_button(
             "📥 Export Schema Analysis",
             data=csv_data,
-            file_name=f"json_schema_analysis_{metadata['table_name']}_{metadata['json_column']}.csv",
+            file_name=f"json_schema_analysis_FIXED_{metadata['table_name']}_{metadata['json_column']}.csv",
             mime="text/csv"
         )
 
@@ -441,7 +465,7 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
 
 def render_enhanced_field_suggestions(schema: Dict) -> List[str]:
     """
-    Generate intelligent field suggestions
+    Generate intelligent field suggestions (with clean paths)
     """
     suggestions = []
 
@@ -451,6 +475,10 @@ def render_enhanced_field_suggestions(schema: Dict) -> List[str]:
     numeric_fields = []
 
     for path, details in schema.items():
+        # Skip any paths with sample prefixes
+        if "sample_" in path:
+            continue
+            
         frequency = details.get('frequency', 0)
         field_type = details.get('snowflake_type', 'VARIANT')
         sample_values = details.get('sample_values', [])
@@ -526,7 +554,7 @@ def test_database_connectivity(conn_manager) -> Tuple[bool, str]:
 - **User:** {user}
 - **Role:** {role}
 - **Status:** Connected and Ready
-- **SQL Generator:** UNIVERSAL FIXED Array Flattening Logic ✅"""
+- **SQL Generator:** FIXED Universal (No Sample Prefixes) ✅"""
 
             return True, status_msg
         else:
