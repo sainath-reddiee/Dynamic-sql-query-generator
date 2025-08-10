@@ -505,7 +505,7 @@ def render_enhanced_snowflake_connection_ui() -> Optional[EnhancedSnowflakeConne
         st.info("📊 **Standard Mode** - Install Modin for better performance: `pip install modin[ray]`")
 
     # Connection form
-    with st.form("enhanced_snowflake_connection", clear_on_submit=False):
+    with st.form("enhanced_snowflake_connection_form", clear_on_submit=False):
         st.subheader("🔐 Connection Parameters")
         
         col1, col2 = st.columns(2)
