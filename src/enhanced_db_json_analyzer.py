@@ -245,7 +245,7 @@ def analyze_database_json_schema_enhanced(conn_manager, table_name: str, json_co
 def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_column: str, 
                                         field_conditions: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    Enhanced database-driven SQL generation with better error handling
+    Enhanced database-driven SQL generation with correct method calls.
     """
     try:
         # Step 1: Analyze JSON schema from database with progress tracking
@@ -261,7 +261,6 @@ def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_co
         # Display comprehensive analysis results
         st.success("✅ **Step 1 Complete:** JSON Schema Analysis")
         
-        # Enhanced metrics display
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("📊 Records Sampled", metadata['sample_size'])
@@ -278,12 +277,14 @@ def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_co
         # Step 2: Generate SQL using the discovered schema
         st.info("🔨 **Step 2:** Generating optimized SQL from discovered schema...")
         
+        # Correctly import the class and instantiate it
         from python_sql_generator import PythonSQLGenerator
-        
         generator = PythonSQLGenerator()
         
         # Use the resolved table name for SQL generation
         resolved_table_name = metadata['resolved_table_name']
+        
+        # This is the corrected method call
         generated_sql = generator.generate_dynamic_sql(
             resolved_table_name, json_column, field_conditions, schema
         )
@@ -296,7 +297,8 @@ def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_co
         return generated_sql, None
         
     except Exception as e:
-        logger.error(f"Enhanced database-driven analysis failed: {e}")
+        # Added exc_info=True to provide a full error traceback in your logs for easier debugging
+        logger.error(f"Enhanced database-driven analysis failed: {e}", exc_info=True)
         return None, f"❌ Database-driven analysis failed: {str(e)}"
 
 
