@@ -533,7 +533,7 @@ def main():
                     if st.button("🔌 Disconnect and Retry", type="secondary"):
                         enhanced_conn_manager.disconnect()
                         if 'enhanced_snowflake_connection' in st.session_state:
-                            del st.session_state.enhanced_snowflake_connection
+                            st.session_state.enhanced_snowflake_connection = None
                         st.info("✅ Disconnected. Please reconnect with correct settings.")
                         st.rerun()
             else:
