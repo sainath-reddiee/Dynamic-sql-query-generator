@@ -315,88 +315,204 @@ def render_snowflake_connection_ui() -> Optional[SnowflakeConnectionManager]:
     return None
 
 
-def render_snowflake_operations_ui(conn_manager: SnowflakeConnectionManager, json_data: Any):
-    """Render UI for Snowflake database operations"""
+def render_snowflake_operations_ui(conn_manager: SnowflakeConnectionManager, json_data: Any = None):
+    """Render UI for Snowflake database operations with database-driven analysis"""
 
     st.markdown("""
     <div style="background: linear-gradient(145deg, #e8f5e8, #f8f9fa); padding: 1.5rem; border-radius: 10px; border: 1px solid #81c784; margin-bottom: 1rem;">
         <h4 style="color: #388e3c; margin-bottom: 1rem;">🏔️ Snowflake Database Operations</h4>
-        <p style="margin-bottom: 0;">Execute SQL queries directly on your Snowflake database using your JSON data.</p>
+        <p style="margin-bottom: 0;">Analyze JSON data directly from your Snowflake database tables and generate optimized queries.</p>
     </div>
     """, unsafe_allow_html=True)
 
     # Operation tabs
-    db_tab1, db_tab2, db_tab3 = st.tabs(["🧪 Quick Analysis", "📊 Custom Queries", "🔧 Database Info"])
+    db_tab1, db_tab2, db_tab3, db_tab4 = st.tabs([
+        "🧪 **Smart JSON Analysis**", 
+        "📊 **Custom Queries**", 
+        "🔍 **Schema Discovery**",
+        "🔧 **Database Info**"
+    ])
 
     with db_tab1:
-        st.subheader("🧪 Quick JSON Analysis")
+        st.subheader("🧪 Database-Driven JSON Analysis")
+        
+        st.markdown("""
+        <div style="background: #e3f2fd; padding: 1rem; border-radius: 6px; margin: 1rem 0;">
+            <h5 style="color: #1976d2;">🎯 How it works:</h5>
+            <ol>
+                <li><strong>Samples</strong> JSON data directly from your database table</li>
+                <li><strong>Analyzes</strong> the JSON structure automatically</li>
+                <li><strong>Generates</strong> optimized SQL based on discovered schema</li>
+                <li><strong>Executes</strong> the query and shows results</li>
+            </ol>
+            <p><em>No need to upload JSON files - we analyze your actual database content!</em></p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # Parameters for quick analysis
+        # Parameters for database-driven analysis
         col1, col2 = st.columns(2)
 
         with col1:
             table_name_db = st.text_input(
-                "Table Name*",
-                placeholder="your_schema.your_table",
-                key="db_table_name"
+                "Table Name* 🏗️",
+                placeholder="SCHEMA_NAME.TABLE_NAME",
+                key="db_table_name",
+                help="Full table name including schema (e.g., MY_SCHEMA.JSON_DATA_TABLE)"
             )
+            
+            sample_size = st.selectbox(
+                "Schema Analysis Sample Size 📊",
+                [5, 10, 20, 50],
+                index=1,
+                key="sample_size",
+                help="Number of records to sample for JSON schema discovery"
+            )
+
         with col2:
             json_column_db = st.text_input(
-                "JSON Column Name*",
+                "JSON Column Name* 📄",
                 placeholder="json_data",
-                key="db_json_column"
+                key="db_json_column",
+                help="Name of the column containing JSON data"
+            )
+            
+            preview_schema = st.checkbox(
+                "Preview Discovered Schema 👀",
+                value=True,
+                key="preview_schema",
+                help="Show the JSON schema discovered from your database"
             )
 
+        # Schema discovery section
+        if st.button("🔍 Discover JSON Schema", type="secondary"):
+            if not all([table_name_db, json_column_db]):
+                st.warning("⚠️ Please provide table name and JSON column name.")
+            else:
+                try:
+                    from db_json_analyzer import analyze_database_json_schema, render_database_json_preview
+                    
+                    schema, error_msg, metadata = analyze_database_json_schema(
+                        conn_manager, table_name_db, json_column_db
+                    )
+                    
+                    if schema:
+                        st.success(f"✅ **Schema Discovery Complete!** Found {len(schema)} JSON fields.")
+                        
+                        if preview_schema:
+                            render_database_json_preview(schema, metadata)
+                        
+                        # Store schema in session state for use in field conditions
+                        st.session_state.discovered_schema = schema
+                        st.session_state.schema_metadata = metadata
+                        
+                    else:
+                        st.error(error_msg)
+                        
+                except Exception as e:
+                    st.error(f"❌ Schema discovery failed: {str(e)}")
+
+        # Field conditions with smart suggestions
+        st.markdown("---")
         field_conditions_db = st.text_area(
-            "Field Conditions:",
+            "Field Conditions: 🎯",
             height=80,
             placeholder="e.g., name, age[>:18], status[=:active]",
-            key="db_field_conditions"
+            key="db_field_conditions",
+            help="Specify which JSON fields to query and their conditions"
         )
 
-        if st.button("🚀 Run Quick Analysis", type="primary"):
+        # Smart suggestions based on discovered schema
+        if 'discovered_schema' in st.session_state:
+            with st.expander("💡 Smart Field Suggestions (Click to expand)"):
+                try:
+                    from db_json_analyzer import render_suggested_field_conditions
+                    suggestions = render_suggested_field_conditions(st.session_state.discovered_schema)
+                    
+                    if suggestions:
+                        st.markdown("**Suggested field conditions based on your data:**")
+                        for i, suggestion in enumerate(suggestions[:5]):
+                            col_a, col_b = st.columns([3, 1])
+                            with col_a:
+                                st.code(suggestion, language="text")
+                            with col_b:
+                                if st.button("Use This", key=f"use_suggestion_{i}"):
+                                    st.session_state.db_field_conditions = suggestion
+                                    st.rerun()
+                    else:
+                        st.info("No specific suggestions available for this schema.")
+                except Exception as e:
+                    st.warning(f"Could not generate suggestions: {e}")
+
+        # Generate and execute query
+        col3, col4 = st.columns(2)
+        
+        with col3:
+            generate_btn = st.button("🚀 Generate Smart SQL", type="primary")
+        
+        with col4:
+            execute_btn = st.button("⚡ Generate & Execute", type="primary")
+
+        if generate_btn or execute_btn:
             if not all([table_name_db, json_column_db, field_conditions_db]):
                 st.warning("⚠️ Please fill in all required fields.")
             else:
                 try:
-                    with st.spinner("🔄 Generating SQL from JSON data..."):
-                        # NOTE: We still need json_data here if the user wants to analyze a file against a DB schema
-                        # If json_data is None, this implies direct-to-DB analysis which requires a different logic path.
-                        # For now, we assume the user provides a sample JSON for schema inference.
-                        if json_data is None:
-                            st.warning("⚠️ For Quick Analysis, please provide a sample JSON file in the 'Pure Python' tab for schema inference.")
-                            return
+                    from db_json_analyzer import generate_database_driven_sql
+                    
+                    # Generate SQL using database-driven analysis
+                    generated_sql, sql_error = generate_database_driven_sql(
+                        conn_manager, table_name_db, json_column_db, field_conditions_db
+                    )
 
-                        generated_sql = generate_sql_from_json_data(
-                            json_data, table_name_db, json_column_db, field_conditions_db
-                        )
-
-                    if generated_sql and not generated_sql.strip().startswith("-- Error"):
-                        st.success("✅ SQL Generated Successfully")
-                        st.subheader("📄 Generated SQL")
+                    if generated_sql:
+                        st.success("✅ **Smart SQL Generated Successfully!**")
+                        
+                        st.subheader("📄 Generated SQL Query")
                         st.code(generated_sql, language="sql")
+                        
+                        # Copy to clipboard functionality
+                        st.markdown(f"""
+                        <div style="margin: 1rem 0;">
+                            <small>💡 <strong>Tip:</strong> This query was generated by analyzing your actual database content!</small>
+                        </div>
+                        """, unsafe_allow_html=True)
 
-                        with st.spinner("🔄 Executing generated SQL on Snowflake..."):
-                            result_df, exec_msg = conn_manager.execute_query(generated_sql)
+                        # Execute if requested
+                        if execute_btn:
+                            with st.spinner("🔄 Executing generated SQL on Snowflake..."):
+                                result_df, exec_error = conn_manager.execute_query(generated_sql)
 
-                            if result_df is not None:
-                                st.subheader("📊 Query Results")
-                                st.dataframe(result_df, use_container_width=True)
-                                if not result_df.empty:
-                                    csv_data = result_df.to_csv(index=False).encode('utf-8')
-                                    st.download_button(
-                                        "📥 Download Results as CSV",
-                                        data=csv_data,
-                                        file_name=f"snowflake_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                        mime="text/csv"
-                                    )
-                            else:
-                                st.error(exec_msg)
+                                if result_df is not None:
+                                    st.subheader("📊 Query Results")
+                                    
+                                    # Results summary
+                                    col_summary1, col_summary2, col_summary3 = st.columns(3)
+                                    with col_summary1:
+                                        st.metric("Rows Returned", len(result_df))
+                                    with col_summary2:
+                                        st.metric("Columns", len(result_df.columns))
+                                    with col_summary3:
+                                        st.metric("Data Size", f"{result_df.memory_usage(deep=True).sum() / 1024:.1f} KB")
+                                    
+                                    # Display results
+                                    st.dataframe(result_df, use_container_width=True)
+                                    
+                                    # Download option
+                                    if not result_df.empty:
+                                        csv_data = result_df.to_csv(index=False).encode('utf-8')
+                                        st.download_button(
+                                            "📥 Download Results as CSV",
+                                            data=csv_data,
+                                            file_name=f"smart_analysis_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                            mime="text/csv"
+                                        )
+                                else:
+                                    st.error(exec_error)
                     else:
-                        st.error(f"❌ Failed to generate SQL. Please check your field conditions. Details: {generated_sql}")
+                        st.error(f"❌ {sql_error}")
 
                 except Exception as e:
-                    st.error(f"❌ An unexpected error occurred during analysis: {str(e)}")
+                    st.error(f"❌ Analysis failed: {str(e)}")
 
     with db_tab2:
         st.subheader("📊 Execute Custom SQL")
@@ -439,6 +555,68 @@ LIMIT 10;""",
                             st.error(error_msg)
 
     with db_tab3:
+        st.subheader("🔍 JSON Schema Discovery Tools")
+        
+        st.markdown("""
+        <div style="background: #fff3e0; padding: 1rem; border-radius: 6px; margin: 1rem 0;">
+            <h5 style="color: #f57c00;">🔍 Advanced Schema Analysis</h5>
+            <p>Explore and understand the JSON structure in your database tables.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Table and column selection
+        schema_table = st.text_input("Table Name:", placeholder="SCHEMA.TABLE", key="schema_table")
+        schema_column = st.text_input("JSON Column:", placeholder="json_column", key="schema_column")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            sample_count = st.number_input("Sample Size:", min_value=1, max_value=100, value=10, key="schema_sample")
+        with col2:
+            show_samples = st.checkbox("Show Sample Values", value=True, key="show_samples")
+        
+        if st.button("🔍 Analyze Schema", type="secondary"):
+            if schema_table and schema_column:
+                try:
+                    from db_json_analyzer import analyze_database_json_schema, render_database_json_preview
+                    
+                    with st.spinner("Analyzing JSON schema..."):
+                        schema, error, metadata = analyze_database_json_schema(
+                            conn_manager, schema_table, schema_column
+                        )
+                        
+                        if schema:
+                            st.success("✅ Schema analysis complete!")
+                            render_database_json_preview(schema, metadata)
+                            
+                            # Export schema option
+                            import pandas as pd
+                            schema_export = []
+                            for path, details in schema.items():
+                                schema_export.append({
+                                    'Field Path': path,
+                                    'Type': details.get('snowflake_type', 'VARIANT'),
+                                    'Frequency': f"{details.get('frequency', 0):.1%}",
+                                    'Queryable': details.get('is_queryable', False),
+                                    'Sample Values': ', '.join(details.get('sample_values', ['N/A'])[:3])
+                                })
+                            
+                            schema_df = pd.DataFrame(schema_export)
+                            csv_data = schema_df.to_csv(index=False)
+                            st.download_button(
+                                "📥 Export Schema Analysis",
+                                data=csv_data,
+                                file_name=f"json_schema_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv"
+                            )
+                        else:
+                            st.error(error)
+                            
+                except Exception as e:
+                    st.error(f"Schema analysis failed: {e}")
+            else:
+                st.warning("Please provide table and column names.")
+
+    with db_tab4:
         st.subheader("🔧 Database Information")
 
         col1, col2 = st.columns(2)
@@ -462,6 +640,9 @@ LIMIT 10;""",
                 conn_manager.disconnect()
                 if 'snowflake_connection' in st.session_state:
                     del st.session_state.snowflake_connection
+                # Clear discovered schema as well
+                if 'discovered_schema' in st.session_state:
+                    del st.session_state.discovered_schema
                 st.success("✅ Disconnected from Snowflake")
                 st.rerun()
 
