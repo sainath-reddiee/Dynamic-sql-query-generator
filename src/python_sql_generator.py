@@ -210,55 +210,37 @@ class PythonSQLGenerator:
 
         return candidates[:1]  # Return best match
 
-def build_array_flattening(self, array_paths: List[str], json_column: str, 
-                               is_top_level_array: bool = False) -> Tuple[str, Dict[str, str]]:
-    """Build LATERAL FLATTEN clauses with correct handling for top-level arrays."""
-    flatten_clauses = []
-    array_aliases = {}
-    root_alias = None
+    def build_array_flattening(self, array_paths: List[str], json_column: str) -> Tuple[str, Dict[str, str]]:
+        """Build LATERAL FLATTEN clauses - matches your procedure logic"""
+        flatten_clauses = []
+        array_aliases = {}
 
-    # If the top level is an array, it MUST be flattened first.
-    if is_top_level_array:
-        root_alias = "f_root"
-        # The root array has an empty path '' in the schema.
-        array_aliases[''] = root_alias
-        flatten_clauses.append(f", LATERAL FLATTEN(input => {self.sanitize_input(json_column)}) {root_alias}")
-        # Remove the root path from the list to avoid processing it again.
-        if '' in array_paths:
-            array_paths.remove('')
+        # Sort by depth to ensure proper nesting order
+        sorted_array_paths = sorted(set(array_paths), key=lambda x: (len(x.split('.')), x))
 
-    # Sort remaining array paths by depth to ensure correct nesting order.
-    sorted_array_paths = sorted(array_paths, key=lambda x: (len(x.split('.')), x))
+        for idx, array_path in enumerate(sorted_array_paths):
+            alias = f"f{idx + 1}"
+            array_aliases[array_path] = alias
 
-    for idx, array_path in enumerate(sorted_array_paths):
-        alias = f"f{idx + 1}"
-        array_aliases[array_path] = alias
+            # Check for parent-child relationship
+            parent_path = None
+            for potential_parent in sorted_array_paths:
+                if (array_path.startswith(potential_parent + '.') and
+                    potential_parent != array_path and
+                    array_path.count('.') == potential_parent.count('.') + 1):
+                    parent_path = potential_parent
+                    break
 
-        # Determine the parent of the current array to build the correct input path.
-        parent_path = None
-        for potential_parent in sorted(array_aliases.keys(), key=len, reverse=True):
-            if potential_parent and array_path.startswith(potential_parent + '.'):
-                parent_path = potential_parent
-                break
+            if parent_path and parent_path in array_aliases:
+                parent_alias = array_aliases[parent_path]
+                relative_path = array_path[len(parent_path) + 1:]
+                safe_relative_path = self.sanitize_input(relative_path)
+                flatten_clauses.append(f", LATERAL FLATTEN(input => {parent_alias}.value:{safe_relative_path}) {alias}")
+            else:
+                safe_array_path = self.sanitize_input(array_path)
+                flatten_clauses.append(f", LATERAL FLATTEN(input => {json_column}:{safe_array_path}) {alias}")
 
-        if parent_path is not None:
-            # This is a standard nested array inside another element.
-            parent_alias = array_aliases[parent_path]
-            # The input path is relative to the parent's alias.
-            relative_path = array_path[len(parent_path) + 1:]
-            input_path = f"{parent_alias}.value:{self.sanitize_input(relative_path)}"
-            flatten_clauses.append(f", LATERAL FLATTEN(input => {input_path}) {alias}")
-        elif is_top_level_array:
-            # This array is a direct child of an object within the top-level array.
-            # The input path is relative to the root alias.
-            input_path = f"{root_alias}.value:{self.sanitize_input(array_path)}"
-            flatten_clauses.append(f", LATERAL FLATTEN(input => {input_path}) {alias}")
-        else:
-            # This is a first-level array inside a single JSON object.
-            input_path = f"{self.sanitize_input(json_column)}:{self.sanitize_input(array_path)}"
-            flatten_clauses.append(f", LATERAL FLATTEN(input => {input_path}) {alias}")
-
-    return ''.join(flatten_clauses), array_aliases
+        return ''.join(flatten_clauses), array_aliases
 
     def build_field_reference(self, field_path: str, json_column: str,
                             array_aliases: Dict[str, str], array_hierarchy: List[str]) -> str:
@@ -318,8 +300,6 @@ def build_array_flattening(self, array_paths: List[str], json_column: str,
             if not conditions:
                 return "-- No field conditions provided. Please specify fields to query."
 
-            is_top_level_array = '' in schema and schema['']['type'] == 'array'
-            
             select_parts = []
             where_conditions = []
             field_where_conditions = []
@@ -338,7 +318,7 @@ def build_array_flattening(self, array_paths: List[str], json_column: str,
                         all_array_paths.update(array_hierarchy)
 
             # Build flattening clauses
-            flatten_clauses, array_aliases = self.build_array_flattening(list(all_array_paths), json_column,is_top_level_array)
+            flatten_clauses, array_aliases = self.build_array_flattening(list(all_array_paths), json_column)
 
             # Process each condition
             for condition in conditions:
