@@ -1,29 +1,15 @@
 """
-Enhanced Snowflake Database Connector with Modin performance optimization
-Includes the new Snowflake Modin plugin for better pandas performance
+Enhanced Snowflake Database Connector with proper session initialization
+Fixes the "This session does not have a current database" error
 """
 import streamlit as st
+import pandas as pd
 import json
 from typing import Dict, Any, Optional, Tuple
 import logging
 from datetime import datetime
 
-# Try to import enhanced pandas with Snowflake Modin plugin
-try:
-    import modin.pandas as pd
-    import snowflake.snowpark.modin.plugin
-    MODIN_AVAILABLE = True
-    st.info("🚀 **Modin Performance Mode Enabled** - Enhanced pandas operations for better performance!")
-except ImportError:
-    try:
-        import pandas as pd
-        MODIN_AVAILABLE = False
-        st.warning("⚠️ Modin not available. Using regular pandas. Install with: `pip install modin[all]`")
-    except ImportError:
-        st.error("❌ Neither Modin nor pandas available!")
-        pd = None
-
-# Try to import snowflake connector
+# Try to import snowflake connector, handle gracefully if not available
 try:
     import snowflake.connector
     from snowflake.connector import DictCursor
@@ -35,90 +21,187 @@ logger = logging.getLogger(__name__)
 
 
 class EnhancedSnowflakeConnectionManager:
-    """Enhanced Snowflake connection manager with Modin performance optimization"""
-    
+    """Enhanced Snowflake connection manager with proper session initialization"""
+
     def __init__(self):
         self.connection = None
         self.connection_params = {}
         self.is_connected = False
-        self.performance_mode = MODIN_AVAILABLE
-        
-    def get_performance_info(self) -> Dict[str, Any]:
-        """Get performance configuration information"""
-        return {
-            'modin_available': MODIN_AVAILABLE,
-            'pandas_backend': 'Modin' if MODIN_AVAILABLE else 'Standard Pandas',
-            'performance_mode': self.performance_mode,
-            'recommended_for': 'Large datasets (>1M rows)' if MODIN_AVAILABLE else 'Small to medium datasets'
-        }
-    
+
     def test_connection(self, connection_params: Dict[str, str]) -> Tuple[bool, str]:
-        """Test Snowflake connection with performance info"""
+        """Test Snowflake connection parameters with proper session setup"""
         if not SNOWFLAKE_AVAILABLE:
             return False, "❌ Snowflake connector not available. Install with: pip install snowflake-connector-python"
-        
+
         try:
-            # Test connection
+            # Test connection with enhanced session setup
             test_conn = snowflake.connector.connect(**connection_params)
             test_cursor = test_conn.cursor()
-            test_cursor.execute("SELECT CURRENT_VERSION(), CURRENT_WAREHOUSE(), CURRENT_DATABASE(), CURRENT_SCHEMA()")
+            
+            # CRITICAL: Explicitly set the database and schema context
+            database = connection_params.get('database')
+            schema = connection_params.get('schema', 'PUBLIC')
+            
+            if database:
+                test_cursor.execute(f"USE DATABASE {database}")
+                test_cursor.execute(f"USE SCHEMA {schema}")
+            
+            # Verify the connection and context
+            test_cursor.execute("SELECT CURRENT_DATABASE(), CURRENT_SCHEMA(), CURRENT_VERSION()")
             result = test_cursor.fetchone()
             test_cursor.close()
             test_conn.close()
-            
-            perf_info = self.get_performance_info()
-            success_msg = f"""✅ **Connection Successful!**
-            
-**Environment Info:**
-- Snowflake Version: {result[0]}
-- Warehouse: {result[1]}
-- Database: {result[2]}
-- Schema: {result[3]}
 
-**Performance Mode:**
-- Backend: {perf_info['pandas_backend']}
-- Optimized for: {perf_info['recommended_for']}
-            """
-            
-            return True, success_msg
-            
+            if result and result[0]:  # Ensure database is set
+                return True, f"✅ Connected successfully! Database: {result[0]}, Schema: {result[1]}, Version: {result[2]}"
+            else:
+                return False, "❌ Connected but no active database. Check your permissions."
+
         except Exception as e:
             error_msg = str(e)
             if "Authentication" in error_msg:
                 return False, "❌ Authentication failed. Please check your username and password."
             elif "Account" in error_msg:
                 return False, "❌ Account identifier is invalid. Please check your account name."
-            elif "Database" in error_msg:
-                return False, "❌ Database or schema not found. Please verify they exist."
+            elif "Database" in error_msg or "does not exist" in error_msg:
+                return False, "❌ Database or schema not found. Please verify they exist and you have access."
             elif "Network" in error_msg or "timeout" in error_msg.lower():
                 return False, "❌ Network connection failed. Check your internet connection."
+            elif "permission" in error_msg.lower() or "access" in error_msg.lower():
+                return False, "❌ Access denied. Check your role and permissions."
             else:
                 return False, f"❌ Connection failed: {error_msg}"
-    
+
     def connect(self, connection_params: Dict[str, str]) -> bool:
-        """Establish persistent connection"""
+        """Establish persistent connection with proper session initialization"""
         if not SNOWFLAKE_AVAILABLE:
             st.error("❌ Snowflake connector not available. Please install snowflake-connector-python")
             return False
-        
+
         try:
+            # Create connection
             self.connection = snowflake.connector.connect(**connection_params)
+            cursor = self.connection.cursor()
+            
+            # CRITICAL: Set database and schema context immediately after connection
+            database = connection_params.get('database')
+            schema = connection_params.get('schema', 'PUBLIC')
+            
+            if database:
+                cursor.execute(f"USE DATABASE {database}")
+                cursor.execute(f"USE SCHEMA {schema}")
+                
+                # Verify the context is set
+                cursor.execute("SELECT CURRENT_DATABASE(), CURRENT_SCHEMA()")
+                result = cursor.fetchone()
+                
+                if not result or not result[0]:
+                    cursor.close()
+                    self.connection.close()
+                    return False
+            
+            cursor.close()
             self.connection_params = connection_params.copy()
             self.is_connected = True
-            
-            # Display performance mode
-            perf_info = self.get_performance_info()
-            if MODIN_AVAILABLE:
-                st.success(f"✅ Connected with **{perf_info['pandas_backend']}** performance optimization!")
-            else:
-                st.success("✅ Connected successfully!")
-                st.info("💡 **Tip:** Install Modin for better performance with large datasets: `pip install modin[all]`")
-            
             return True
+            
         except Exception as e:
             st.error(f"❌ Failed to establish connection: {str(e)}")
+            if self.connection:
+                try:
+                    self.connection.close()
+                except:
+                    pass
             return False
-    
+
+    def ensure_session_context(self) -> bool:
+        """Ensure the session has proper database/schema context"""
+        if not self.is_connected or not self.connection:
+            return False
+        
+        try:
+            cursor = self.connection.cursor()
+            
+            # Check current context
+            cursor.execute("SELECT CURRENT_DATABASE(), CURRENT_SCHEMA()")
+            result = cursor.fetchone()
+            
+            # If no database context, re-establish it
+            if not result or not result[0]:
+                database = self.connection_params.get('database')
+                schema = self.connection_params.get('schema', 'PUBLIC')
+                
+                if database:
+                    cursor.execute(f"USE DATABASE {database}")
+                    cursor.execute(f"USE SCHEMA {schema}")
+            
+            cursor.close()
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Failed to ensure session context: {e}")
+            return False
+
+    def execute_query(self, sql: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
+        """Execute SQL query with automatic session context management"""
+        if not self.is_connected:
+            return None, "❌ Not connected to database"
+
+        try:
+            # Ensure session context before executing query
+            if not self.ensure_session_context():
+                return None, "❌ Failed to establish database session context"
+            
+            cursor = self.connection.cursor(DictCursor)
+            cursor.execute(sql)
+
+            # Get column names
+            columns = [desc[0] for desc in cursor.description] if cursor.description else []
+
+            # Fetch results
+            rows = cursor.fetchall()
+            cursor.close()
+
+            if rows and columns:
+                df = pd.DataFrame(rows, columns=columns)
+                return df, None
+            else:
+                return pd.DataFrame(), None
+
+        except Exception as e:
+            error_msg = str(e)
+            
+            # Handle specific session context errors
+            if "does not have a current database" in error_msg:
+                # Try to re-establish context and retry once
+                try:
+                    database = self.connection_params.get('database')
+                    schema = self.connection_params.get('schema', 'PUBLIC')
+                    
+                    if database:
+                        cursor = self.connection.cursor()
+                        cursor.execute(f"USE DATABASE {database}")
+                        cursor.execute(f"USE SCHEMA {schema}")
+                        cursor.close()
+                        
+                        # Retry the original query
+                        cursor = self.connection.cursor(DictCursor)
+                        cursor.execute(sql)
+                        columns = [desc[0] for desc in cursor.description] if cursor.description else []
+                        rows = cursor.fetchall()
+                        cursor.close()
+                        
+                        if rows and columns:
+                            df = pd.DataFrame(rows, columns=columns)
+                            return df, None
+                        else:
+                            return pd.DataFrame(), None
+                            
+                except Exception as retry_e:
+                    return None, f"❌ Database context error (retry failed): {str(retry_e)}"
+            
+            return None, f"❌ Query execution failed: {error_msg}"
+
     def disconnect(self):
         """Close the connection"""
         if self.connection:
@@ -130,265 +213,268 @@ class EnhancedSnowflakeConnectionManager:
                 self.connection = None
                 self.is_connected = False
                 self.connection_params = {}
-    
-    def execute_query_with_performance(self, sql: str) -> Tuple[Optional[pd.DataFrame], Optional[str], Dict[str, Any]]:
-        """Execute SQL query with performance monitoring"""
-        if not SNOWFLAKE_AVAILABLE or not pd:
-            return None, "❌ Required libraries not available", {}
-        
-        if not self.is_connected:
-            return None, "❌ Not connected to database", {}
-        
-        start_time = datetime.now()
-        performance_stats = {
-            'backend': 'Modin' if MODIN_AVAILABLE else 'Pandas',
-            'start_time': start_time,
-            'query_size': len(sql),
-            'success': False
-        }
-        
-        try:
-            cursor = self.connection.cursor(DictCursor)
-            cursor.execute(sql)
-            
-            # Get column names
-            columns = [desc[0] for desc in cursor.description] if cursor.description else []
-            
-            # Fetch results
-            rows = cursor.fetchall()
-            cursor.close()
-            
-            end_time = datetime.now()
-            execution_time = (end_time - start_time).total_seconds()
-            
-            performance_stats.update({
-                'end_time': end_time,
-                'execution_time': execution_time,
-                'rows_returned': len(rows),
-                'columns_returned': len(columns),
-                'success': True
-            })
-            
-            if rows and columns:
-                # Create DataFrame with performance-optimized backend
-                if MODIN_AVAILABLE and len(rows) > 10000:  # Use Modin for large datasets
-                    df = pd.DataFrame(rows, columns=columns)
-                    performance_stats['dataframe_backend'] = 'Modin (optimized)'
-                else:
-                    # Use regular pandas for small datasets
-                    import pandas as regular_pd
-                    df = regular_pd.DataFrame(rows, columns=columns)
-                    performance_stats['dataframe_backend'] = 'Pandas (standard)'
-                
-                performance_stats['dataframe_memory'] = df.memory_usage(deep=True).sum()
-                return df, None, performance_stats
-            else:
-                return pd.DataFrame() if pd else None, None, performance_stats
-                
-        except Exception as e:
-            end_time = datetime.now()
-            performance_stats.update({
-                'end_time': end_time,
-                'execution_time': (end_time - start_time).total_seconds(),
-                'error': str(e),
-                'success': False
-            })
-            return None, f"❌ Query execution failed: {str(e)}", performance_stats
-    
-    def create_temp_table_with_json_optimized(self, json_data: Any, temp_table_name: str = None) -> Tuple[Optional[str], Optional[str]]:
-        """Create temporary table with JSON data - optimized version"""
-        if not self.is_connected:
-            return None, "❌ Not connected to database"
-        
-        if not temp_table_name:
-            temp_table_name = f"TEMP_JSON_ANALYSIS_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:19]}"
-        
-        try:
-            cursor = self.connection.cursor()
-            
-            # Create optimized temporary table with better column structure
-            create_sql = f"""
-            CREATE OR REPLACE TEMPORARY TABLE {temp_table_name} (
-                id INTEGER AUTOINCREMENT START 1 INCREMENT 1,
-                json_data VARIANT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
-                data_size NUMBER,
-                data_hash STRING
-            ) 
-            CLUSTER BY (created_at)
-            """
-            cursor.execute(create_sql)
-            
-            # Prepare JSON data with optimization
-            json_str = json.dumps(json_data, separators=(',', ':')) if not isinstance(json_data, str) else json_data
-            json_str_escaped = json_str.replace("'", "''")
-            data_size = len(json_str)
-            data_hash = str(hash(json_str))
-            
-            # Insert with additional metadata
-            insert_sql = f"""
-            INSERT INTO {temp_table_name} (json_data, data_size, data_hash) 
-            SELECT 
-                PARSE_JSON('{json_str_escaped}') as json_data,
-                {data_size} as data_size,
-                '{data_hash}' as data_hash
-            """
-            cursor.execute(insert_sql)
-            
-            # Verify insertion and get stats
-            cursor.execute(f"""
-                SELECT 
-                    COUNT(*) as record_count,
-                    AVG(data_size) as avg_size,
-                    MAX(created_at) as created_time
-                FROM {temp_table_name}
-            """)
-            stats = cursor.fetchone()
-            cursor.close()
-            
-            success_msg = f"""✅ **Optimized Temp Table Created**
-            
-**Table:** {temp_table_name}
-**Records:** {stats[0]}
-**Data Size:** {stats[1]:,.0f} bytes
-**Created:** {stats[2]}
-**Backend:** {'Modin-optimized' if MODIN_AVAILABLE else 'Standard'}
-            """
-            
-            return temp_table_name, success_msg
-            
-        except Exception as e:
-            return None, f"❌ Failed to create optimized temp table: {str(e)}"
-    
-    def call_dynamic_sql_procedure_enhanced(self, table_name: str, json_column: str, 
-                                          field_conditions: str) -> Tuple[Optional[str], Optional[str]]:
-        """Call the dynamic SQL procedure with enhanced error handling"""
-        if not self.is_connected:
-            return None, "❌ Not connected to database"
-        
-        try:
-            cursor = self.connection.cursor()
-            
-            # Enhanced procedure call with timeout and error handling
-            procedure_call = f"""
-            CALL SAINATH.SNOW.DYNAMIC_SQL_LARGE_IMPROVED(
-                '{table_name}',
-                '{json_column}',
-                '{field_conditions}'
-            )
-            """
-            
-            # Set query timeout for large operations
-            cursor.execute("ALTER SESSION SET QUERY_TIMEOUT = 300")  # 5 minutes
-            cursor.execute(procedure_call)
-            
-            result = cursor.fetchone()
-            cursor.close()
-            
-            if result and result[0]:
-                success_msg = f"""✅ **Procedure Executed Successfully**
-                
-**Generated SQL Length:** {len(result[0]):,} characters
-**Performance Mode:** {'Modin-optimized' if MODIN_AVAILABLE else 'Standard'}
-**Execution:** Enhanced error handling enabled
-                """
-                return result[0], success_msg
-            else:
-                return None, "❌ Procedure returned no result"
-                
-        except Exception as e:
-            error_details = str(e)
-            if "timeout" in error_details.lower():
-                return None, "❌ Query timeout - try with simpler field conditions or smaller dataset"
-            elif "procedure" in error_details.lower():
-                return None, f"❌ Procedure error: {error_details}\n💡 Ensure SAINATH.SNOW.DYNAMIC_SQL_LARGE_IMPROVED exists"
-            else:
-                return None, f"❌ Execution failed: {error_details}"
 
 
-def render_enhanced_performance_info():
-    """Render performance information panel"""
-    perf_info = {
-        'modin_available': MODIN_AVAILABLE,
-        'snowflake_available': SNOWFLAKE_AVAILABLE,
-        'pandas_backend': 'Modin' if MODIN_AVAILABLE else 'Standard Pandas'
-    }
+def sample_json_from_database_fixed(conn_manager, table_name: str, json_column: str, 
+                                  sample_size: int = 5) -> Tuple[Optional[list], Optional[str]]:
+    """
+    Enhanced JSON sampling with proper table name handling and context management
+    """
+    if not conn_manager.is_connected:
+        return None, "❌ Not connected to database"
     
+    try:
+        # Ensure database context
+        if not conn_manager.ensure_session_context():
+            return None, "❌ Failed to establish database session context"
+        
+        # Handle table name - if it doesn't contain a dot, prepend current database.schema
+        if '.' not in table_name:
+            database = conn_manager.connection_params.get('database')
+            schema = conn_manager.connection_params.get('schema', 'PUBLIC')
+            table_name = f"{database}.{schema}.{table_name}"
+        elif table_name.count('.') == 1:
+            # Only schema.table provided, add database
+            database = conn_manager.connection_params.get('database')
+            table_name = f"{database}.{table_name}"
+        
+        # Query to sample JSON data with explicit table qualification
+        sample_query = f"""
+        SELECT {json_column}
+        FROM {table_name}
+        WHERE {json_column} IS NOT NULL
+        LIMIT {sample_size}
+        """
+        
+        result_df, error_msg = conn_manager.execute_query(sample_query)
+        
+        if result_df is None:
+            return None, f"❌ Failed to sample data: {error_msg}"
+        
+        if result_df.empty:
+            return None, f"❌ No data found in {table_name}.{json_column}"
+        
+        # Extract JSON data from the results
+        json_samples = []
+        for _, row in result_df.iterrows():
+            json_value = row[json_column]
+            
+            if json_value is not None:
+                try:
+                    # Handle different JSON storage formats
+                    if isinstance(json_value, str):
+                        parsed_json = json.loads(json_value)
+                    elif isinstance(json_value, dict):
+                        parsed_json = json_value
+                    else:
+                        # Convert to string and try to parse
+                        parsed_json = json.loads(str(json_value))
+                    
+                    json_samples.append(parsed_json)
+                    
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse JSON from row: {e}")
+                    continue
+        
+        if not json_samples:
+            return None, f"❌ No valid JSON found in sampled records from {table_name}.{json_column}"
+        
+        return json_samples, None
+        
+    except Exception as e:
+        error_msg = str(e)
+        
+        # Provide more specific error messages
+        if "does not exist" in error_msg:
+            return None, f"❌ Table {table_name} does not exist or you don't have access to it"
+        elif "Invalid identifier" in error_msg:
+            return None, f"❌ Invalid column name '{json_column}' in table {table_name}"
+        elif "permission" in error_msg.lower():
+            return None, f"❌ Permission denied accessing {table_name}"
+        else:
+            return None, f"❌ Database sampling failed: {error_msg}"
+
+
+# Enhanced connection UI function
+def render_enhanced_snowflake_connection_ui() -> Optional[EnhancedSnowflakeConnectionManager]:
+    """Render enhanced Snowflake connection UI with better error handling"""
+    
+    if not SNOWFLAKE_AVAILABLE:
+        st.error("""
+        ❌ **Snowflake Connector Not Available**
+
+        To use database connectivity features, please install the Snowflake connector:
+        ```bash
+        pip install snowflake-connector-python
+        ```
+        """)
+        return None
+
     st.markdown("""
-    <div style="background: linear-gradient(145deg, #fff8e1, #f8f9fa); padding: 1rem; border-radius: 8px; border: 1px solid #ffcc02; margin-bottom: 1rem;">
-        <h4 style="color: #f57c00;">⚡ Performance Configuration</h4>
+    <div style="background: linear-gradient(145deg, #e8f5e8, #f1f8e9); padding: 1.5rem; border-radius: 10px; border: 2px solid #81c784; margin-bottom: 1rem;">
+        <h4 style="color: #2e7d32; margin-bottom: 1rem;">🔗 Enhanced Snowflake Connection</h4>
+        <p style="margin-bottom: 0.5rem;"><strong>✅ Enhanced Features:</strong></p>
+        <ul style="margin-bottom: 0; color: #1b5e20;">
+            <li>🎯 <strong>Automatic session context management</strong></li>
+            <li>🛡️ <strong>Fixed database context issues</strong></li>
+            <li>🔧 <strong>Better error handling and diagnostics</strong></li>
+            <li>📊 <strong>Smart table name resolution</strong></li>
+        </ul>
     </div>
     """, unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if MODIN_AVAILABLE:
-            st.success("🚀 **Modin Enabled**")
-            st.caption("Optimized for large datasets")
-        else:
-            st.warning("📊 **Standard Pandas**")
-            st.caption("Good for small-medium datasets")
-    
-    with col2:
-        if SNOWFLAKE_AVAILABLE:
-            st.success("🏔️ **Snowflake Ready**")
-            st.caption("Database connectivity available")
-        else:
-            st.error("❌ **Snowflake Missing**")
-            st.caption("Install snowflake-connector-python")
-    
-    with col3:
-        backend = perf_info['pandas_backend']
-        if backend == 'Modin':
-            st.info("⚡ **High Performance**")
-            st.caption("Multi-core processing enabled")
-        else:
-            st.info("🔧 **Standard Mode**")
-            st.caption("Single-core processing")
-    
-    # Performance recommendations
-    if not MODIN_AVAILABLE:
-        st.markdown("""
-        <div style="background: #e3f2fd; padding: 1rem; border-radius: 6px; margin-top: 1rem;">
-            <h5 style="color: #1976d2;">💡 Performance Upgrade Available</h5>
-            <p>Install Modin for better performance with large datasets:</p>
-            <code>pip install modin[all] snowflake-snowpark-python</code>
-            <p><small>Modin provides up to 4x faster pandas operations on multi-core systems.</small></p>
-        </div>
-        """, unsafe_allow_html=True)
 
+    # Connection form
+    with st.form("enhanced_snowflake_connection", clear_on_submit=False):
+        st.subheader("🔐 Connection Parameters")
+        
+        col1, col2 = st.columns(2)
 
-def render_performance_metrics(performance_stats: Dict[str, Any]):
-    """Render query performance metrics"""
-    if not performance_stats.get('success'):
-        return
-    
-    st.markdown("### 📈 Performance Metrics")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        exec_time = performance_stats.get('execution_time', 0)
-        st.metric("Execution Time", f"{exec_time:.2f}s")
-    
-    with col2:
-        rows = performance_stats.get('rows_returned', 0)
-        st.metric("Rows Returned", f"{rows:,}")
-    
-    with col3:
-        cols = performance_stats.get('columns_returned', 0)
-        st.metric("Columns", cols)
-    
-    with col4:
-        backend = performance_stats.get('dataframe_backend', 'Unknown')
-        st.metric("Backend", backend.split(' ')[0])
-    
-    # Memory usage if available
-    if 'dataframe_memory' in performance_stats:
-        memory_mb = performance_stats['dataframe_memory'] / 1024 / 1024
-        st.caption(f"Memory Usage: {memory_mb:.2f} MB")
-    
-    # Performance tips
-    if rows > 100000 and not MODIN_AVAILABLE:
-        st.info("💡 **Tip:** Large result set detected. Consider installing Modin for better performance with datasets > 100K rows.")
+        with col1:
+            account = st.text_input(
+                "Account Identifier*",
+                placeholder="your-account.region.cloud",
+                help="Your Snowflake account identifier (e.g., abc123.us-east-1.aws)",
+                key="enh_account"
+            )
+            user = st.text_input(
+                "Username*",
+                placeholder="your_username",
+                help="Your Snowflake username",
+                key="enh_user"
+            )
+            password = st.text_input(
+                "Password*",
+                type="password",
+                placeholder="your_password",
+                help="Your Snowflake password",
+                key="enh_password"
+            )
+
+        with col2:
+            warehouse = st.text_input(
+                "Warehouse*",
+                placeholder="COMPUTE_WH",
+                help="Warehouse to use for computations",
+                key="enh_warehouse"
+            )
+            database = st.text_input(
+                "Database*",
+                placeholder="your_database",
+                help="Database name (case-sensitive)",
+                key="enh_database"
+            )
+            schema = st.text_input(
+                "Schema*",
+                placeholder="PUBLIC",
+                value="PUBLIC",
+                help="Schema name (case-sensitive)",
+                key="enh_schema"
+            )
+
+        # Advanced options
+        with st.expander("🔧 Advanced Options"):
+            col3, col4 = st.columns(2)
+            
+            with col3:
+                role = st.text_input(
+                    "Role",
+                    placeholder="your_role",
+                    help="Role to assume (leave empty for default)",
+                    key="enh_role"
+                )
+            
+            with col4:
+                timeout = st.number_input(
+                    "Timeout (seconds)",
+                    min_value=30,
+                    max_value=300,
+                    value=60,
+                    help="Connection timeout",
+                    key="enh_timeout"
+                )
+
+        # Form buttons
+        col5, col6 = st.columns(2)
+
+        with col5:
+            test_connection = st.form_submit_button("🧪 Test Enhanced Connection", type="secondary")
+
+        with col6:
+            connect_button = st.form_submit_button("⚡ Connect with Enhanced Mode", type="primary")
+
+    # Validate required fields
+    required_fields = {
+        'Account': account,
+        'Username': user,
+        'Password': password,
+        'Warehouse': warehouse,
+        'Database': database,
+        'Schema': schema
+    }
+
+    missing_fields = [name for name, value in required_fields.items() if not value or not value.strip()]
+
+    if test_connection or connect_button:
+        if missing_fields:
+            st.error(f"❌ Please fill in required fields: {', '.join(missing_fields)}")
+            return None
+
+    # Build connection parameters
+    connection_params = {
+        'account': account,
+        'user': user,
+        'password': password,
+        'warehouse': warehouse,
+        'database': database,
+        'schema': schema,
+        'login_timeout': timeout
+    }
+
+    if role and role.strip():
+        connection_params['role'] = role
+
+    # Initialize enhanced connection manager
+    conn_manager = EnhancedSnowflakeConnectionManager()
+
+    # Handle test connection
+    if test_connection and not missing_fields:
+        with st.spinner("🔄 Testing enhanced connection..."):
+            success, message = conn_manager.test_connection(connection_params)
+
+            if success:
+                st.success(message)
+                st.balloons()
+            else:
+                st.error(message)
+                
+                # Provide troubleshooting tips
+                st.markdown("""
+                **🔧 Troubleshooting Tips:**
+                - Ensure your account identifier is correct (format: account.region.cloud)
+                - Verify database and schema names are case-sensitive and exist
+                - Check that your user has appropriate permissions
+                - Consider specifying a role if using SSO or complex permission setup
+                """)
+
+        return None  # Don't connect, just test
+
+    # Handle actual connection
+    if connect_button and not missing_fields:
+        with st.spinner("⚡ Connecting with enhanced session management..."):
+            if conn_manager.connect(connection_params):
+                st.success("✅ **Enhanced Snowflake connection established successfully!**")
+                st.session_state.enhanced_snowflake_connection = conn_manager
+                st.balloons()
+                return conn_manager
+            else:
+                st.error("❌ Failed to establish enhanced connection")
+                return None
+
+    # Check if already connected
+    if 'enhanced_snowflake_connection' in st.session_state:
+        existing_conn = st.session_state.enhanced_snowflake_connection
+        if existing_conn.is_connected:
+            st.success("✅ **Enhanced Snowflake connection is active!**")
+            return existing_conn
+
+    return None
