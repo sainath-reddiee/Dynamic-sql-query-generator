@@ -2,7 +2,8 @@
 Configuration management module
 """
 import os
-from typing import Optional
+import logging
+from typing import Optional, List
 from pathlib import Path
 
 # Load environment variables from .env file if it exists
@@ -48,16 +49,73 @@ class Config:
     DATABASE_URL: Optional[str] = os.getenv('DATABASE_URL')
     DATABASE_NAME: Optional[str] = os.getenv('DATABASE_NAME')
     
+    # JSON Analysis Settings (Application-specific)
+    DEFAULT_SCHEMA: str = os.getenv('DEFAULT_SCHEMA', 'PUBLIC')
+    DEFAULT_WAREHOUSE: str = os.getenv('DEFAULT_WAREHOUSE', 'COMPUTE_WH')
+    DEFAULT_QUERY_TIMEOUT: int = int(os.getenv('DEFAULT_QUERY_TIMEOUT', '300'))
+    MAX_RESULT_ROWS: int = int(os.getenv('MAX_RESULT_ROWS', '10000'))
+    
+    # File Upload Settings
+    ALLOWED_FILE_EXTENSIONS: List[str] = os.getenv('ALLOWED_FILE_EXTENSIONS', '.json,.txt').split(',')
+    MAX_FIELD_CONDITIONS_LENGTH: int = int(os.getenv('MAX_FIELD_CONDITIONS_LENGTH', '1000'))
+    
+    # UI Settings
+    ENABLE_PERFORMANCE_MODE: bool = os.getenv('ENABLE_PERFORMANCE_MODE', 'true').lower() == 'true'
+    SHOW_DEBUG_INFO: bool = os.getenv('SHOW_DEBUG_INFO', 'false').lower() == 'true'
+    
+    @classmethod
+    def setup_logging(cls):
+        """Setup logging configuration with directory creation"""
+        # Ensure logs directory exists
+        log_file_path = Path(cls.LOG_FILE_PATH)
+        log_file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Configure logging
+        logging.basicConfig(
+            level=cls.get_log_level(),
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(cls.LOG_FILE_PATH, encoding='utf-8'),
+                logging.StreamHandler()  # Also log to console
+            ]
+        )
+        
+        # Set specific logger levels
+        if not cls.DEBUG:
+            # In production, reduce noise from external libraries
+            logging.getLogger('urllib3').setLevel(logging.WARNING)
+            logging.getLogger('requests').setLevel(logging.WARNING)
+    
     @classmethod
     def get_log_level(cls) -> int:
         """Convert log level string to logging level constant"""
-        import logging
         return getattr(logging, cls.LOG_LEVEL, logging.INFO)
     
     @classmethod
     def is_production(cls) -> bool:
         """Check if running in production environment"""
         return not cls.DEBUG and os.getenv('ENVIRONMENT', '').lower() == 'production'
+    
+    @classmethod
+    def validate_config(cls) -> List[str]:
+        """Validate configuration and return list of issues"""
+        issues = []
+        
+        # Check required settings
+        if cls.MAX_UPLOAD_SIZE_MB <= 0:
+            issues.append("MAX_UPLOAD_SIZE_MB must be positive")
+        
+        if cls.JSON_ANALYSIS_MAX_DEPTH <= 0:
+            issues.append("JSON_ANALYSIS_MAX_DEPTH must be positive")
+        
+        if cls.CACHE_TTL_SECONDS <= 0:
+            issues.append("CACHE_TTL_SECONDS must be positive")
+        
+        # Check file extensions
+        if not cls.ALLOWED_FILE_EXTENSIONS or not all(ext.startswith('.') for ext in cls.ALLOWED_FILE_EXTENSIONS):
+            issues.append("ALLOWED_FILE_EXTENSIONS must be a list of extensions starting with '.'")
+        
+        return issues
     
     @classmethod
     def get_config_summary(cls) -> dict:
@@ -72,9 +130,21 @@ class Config:
             'max_upload_size_mb': cls.MAX_UPLOAD_SIZE_MB,
             'json_max_depth': cls.JSON_ANALYSIS_MAX_DEPTH,
             'cache_ttl': cls.CACHE_TTL_SECONDS,
-            'is_production': cls.is_production()
+            'default_schema': cls.DEFAULT_SCHEMA,
+            'default_warehouse': cls.DEFAULT_WAREHOUSE,
+            'query_timeout': cls.DEFAULT_QUERY_TIMEOUT,
+            'max_result_rows': cls.MAX_RESULT_ROWS,
+            'allowed_extensions': cls.ALLOWED_FILE_EXTENSIONS,
+            'performance_mode_enabled': cls.ENABLE_PERFORMANCE_MODE,
+            'is_production': cls.is_production(),
+            'validation_issues': cls.validate_config()
         }
 
 
 # Create a global config instance
 config = Config()
+
+# Validate configuration on import
+validation_issues = config.validate_config()
+if validation_issues and not config.DEBUG:
+    print(f"⚠️  Configuration issues detected: {', '.join(validation_issues)}")
