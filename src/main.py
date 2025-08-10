@@ -22,16 +22,13 @@ from enhanced_snowflake_connector import (
     SNOWFLAKE_AVAILABLE
 )
 
-# Import enhanced database-driven analysis
-from enhanced_db_json_analyzer import (
+from universal_db_analyzer import (
+    generate_database_driven_sql,
     generate_database_driven_sql_enhanced,
     analyze_database_json_schema_enhanced,
     render_enhanced_database_json_preview,
     test_database_connectivity
 )
-
-# Import original for fallback
-from db_json_analyzer import generate_database_driven_sql
 
 from json_analyzer import analyze_json_structure
 from utils import (
