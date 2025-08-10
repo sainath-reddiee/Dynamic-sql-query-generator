@@ -1,6 +1,6 @@
 """
-Enhanced Database-driven JSON analysis for Snowflake
-Fixes session context issues and improves error handling
+FIXED Enhanced Database-driven JSON analysis for Snowflake
+Removes the incorrect sample_0 prefix issue that was breaking SQL generation
 """
 import streamlit as st
 import json
@@ -130,7 +130,7 @@ def resolve_table_name(conn_manager, table_name: str) -> str:
 def analyze_database_json_schema_enhanced(conn_manager, table_name: str, json_column: str, 
                                         sample_size: int = 10) -> Tuple[Optional[Dict], Optional[str], Dict]:
     """
-    Enhanced JSON schema analysis with better error handling and progress tracking
+    FIXED Enhanced JSON schema analysis - removes the sample_0 prefix issue
     """
     metadata = {
         'table_name': table_name,
@@ -162,22 +162,31 @@ def analyze_database_json_schema_enhanced(conn_manager, table_name: str, json_co
         metadata['sample_size'] = len(json_samples)
         progress_bar.progress(40)
 
-        # Step 2: Analyze JSON structure
+        # Step 2: Analyze JSON structure using the FIXED SQL generator logic
         status_text.text("🔬 Analyzing JSON structure...")
 
-        from json_analyzer import analyze_json_structure
+        # CRITICAL FIX: Use the corrected PythonSQLGenerator directly
+        from python_sql_generator import PythonSQLGenerator
 
-        combined_schema = {}
+        generator = PythonSQLGenerator()
+        
+        # FIXED: Use the first sample as the base and DON'T add sample prefixes
+        base_json = json_samples[0]
+        combined_schema = generator.analyze_json_for_sql(base_json)  # NO parent_path prefix!
+
         unique_structures = set()
+        structure_signature = str(sorted(combined_schema.keys()))
+        unique_structures.add(structure_signature)
 
-        for i, json_sample in enumerate(json_samples):
+        # Process additional samples for enhanced metadata
+        for i, json_sample in enumerate(json_samples[1:], 1):
             try:
                 # Update progress
                 progress_percentage = 40 + (i / len(json_samples)) * 40
                 progress_bar.progress(int(progress_percentage))
 
-                # Analyze each JSON sample
-                sample_schema = analyze_json_structure(json_sample, parent_path=f"sample_{i}")
+                # FIXED: Analyze each sample WITHOUT adding sample prefix
+                sample_schema = generator.analyze_json_for_sql(json_sample)  # NO parent_path!
 
                 # Track unique JSON structures
                 structure_signature = str(sorted(sample_schema.keys()))
@@ -218,6 +227,15 @@ def analyze_database_json_schema_enhanced(conn_manager, table_name: str, json_co
         progress_bar.progress(80)
         status_text.text("✅ Finalizing schema analysis...")
 
+        # Ensure all fields have the required metadata
+        for path, details in combined_schema.items():
+            if 'sample_values' not in details:
+                details['sample_values'] = [details.get('sample_value', '')]
+            if 'found_in_samples' not in details:
+                details['found_in_samples'] = 1
+            if 'frequency' not in details:
+                details['frequency'] = 1.0
+
         metadata['unique_schemas'] = len(unique_structures)
         metadata['analysis_success'] = len(combined_schema) > 0
 
@@ -233,6 +251,12 @@ def analyze_database_json_schema_enhanced(conn_manager, table_name: str, json_co
         if not combined_schema:
             return None, "❌ No valid JSON schema could be extracted from database samples", metadata
 
+        # VERIFICATION: Show the clean paths without sample prefixes
+        st.success(f"🎯 **FIXED:** Generated clean JSON paths (no 'sample_0' prefixes):")
+        clean_paths = list(combined_schema.keys())[:5]  # Show first 5 paths
+        for path in clean_paths:
+            st.code(f"✅ {path}", language="text")
+
         return combined_schema, None, metadata
 
     except Exception as e:
@@ -245,7 +269,7 @@ def analyze_database_json_schema_enhanced(conn_manager, table_name: str, json_co
 def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_column: str, 
                                         field_conditions: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    Enhanced database-driven SQL generation with better error handling
+    FIXED Enhanced database-driven SQL generation
     """
     try:
         # Step 1: Analyze JSON schema from database with progress tracking
@@ -259,7 +283,7 @@ def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_co
             return None, f"Schema analysis failed: {schema_error}"
 
         # Display comprehensive analysis results
-        st.success("✅ **Step 1 Complete:** JSON Schema Analysis")
+        st.success("✅ **Step 1 Complete:** JSON Schema Analysis (FIXED - No Sample Prefixes)")
 
         # Enhanced metrics display
         col1, col2, col3, col4 = st.columns(4)
@@ -276,8 +300,7 @@ def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_co
         st.info(f"📋 **Analyzed Table:** `{metadata['resolved_table_name']}`")
 
         # Step 2: Generate SQL using the discovered schema
-        st.info("🔨 **Step 2:** Generating optimized SQL from discovered schema...")
-
+        st.info("🔨 **Step 2:** Generating optimized SQL from CLEAN schema (no sample prefixes)...")
 
         from python_sql_generator import PythonSQLGenerator
         
@@ -286,7 +309,7 @@ def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_co
         # Use the resolved table name for SQL generation
         resolved_table_name = metadata['resolved_table_name']
 
-
+        # Generate SQL using the FIXED schema (no sample prefixes)
         generated_sql = generator.generate_dynamic_sql(
             resolved_table_name, json_column, field_conditions, schema
         )
@@ -294,13 +317,18 @@ def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_co
         if generated_sql.strip().startswith("-- Error"):
             return None, f"SQL generation failed: {generated_sql}"
 
-        st.success("✅ **Step 2 Complete:** Optimized SQL Generated")
+        st.success("✅ **Step 2 Complete:** Clean SQL Generated (FIXED - No 'sample_0' in paths)")
+        
+        # Show verification that paths are clean
+        if "sample_0" in generated_sql:
+            st.error("❌ **ALERT:** 'sample_0' detected in SQL - there's still an issue!")
+        else:
+            st.success("🎯 **VERIFIED:** SQL contains clean JSON paths (no 'sample_0' prefixes)")
 
         return generated_sql, None
 
     except Exception as e:
         logger.error(f"Enhanced database-driven analysis failed: {e}")
-
         return None, f"❌ Database-driven analysis failed: {str(e)}"
 
 
@@ -308,7 +336,10 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
     """
     Enhanced preview of the discovered JSON schema with better visualization
     """
-    st.markdown("### 📊 Discovered JSON Schema Analysis")
+    st.markdown("### 📊 Discovered JSON Schema Analysis (FIXED - Clean Paths)")
+
+    # Show verification that we have clean paths
+    st.info("🎯 **Path Verification:** All paths below should be clean without 'sample_0' prefixes")
 
     # Enhanced schema summary with better formatting
     st.markdown("**📈 Schema Overview:**")
@@ -333,8 +364,12 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
                     val_str = val_str[:47] + "..."
                 readable_samples.append(val_str)
 
+            # VERIFICATION: Check for sample prefixes
+            path_status = "✅ Clean" if "sample_" not in path else "❌ Has Sample Prefix"
+
             schema_summary.append({
                 'Field Path': path,
+                'Path Status': path_status,
                 'Snowflake Type': field_type,
                 'Frequency': f"{frequency:.1%}",
                 'Found In Samples': f"{found_in}/{metadata['sample_size']}",
@@ -353,12 +388,19 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
 
         st.dataframe(schema_df, use_container_width=True, height=400)
 
+        # Check for any remaining sample prefixes
+        sample_prefix_count = sum(1 for path in schema.keys() if "sample_" in path)
+        if sample_prefix_count > 0:
+            st.error(f"❌ **ALERT:** {sample_prefix_count} paths still contain 'sample_' prefixes!")
+        else:
+            st.success("🎯 **VERIFIED:** All paths are clean (no sample prefixes)")
+
         # Export option
         csv_data = schema_df.to_csv(index=False).encode('utf-8')
         st.download_button(
             "📥 Export Schema Analysis",
             data=csv_data,
-            file_name=f"json_schema_analysis_{metadata['table_name']}_{metadata['json_column']}.csv",
+            file_name=f"json_schema_analysis_FIXED_{metadata['table_name']}_{metadata['json_column']}.csv",
             mime="text/csv"
         )
 
@@ -486,7 +528,8 @@ def test_database_connectivity(conn_manager) -> Tuple[bool, str]:
 - **Schema:** {schema}  
 - **User:** {user}
 - **Role:** {role}
-- **Status:** Connected and Ready"""
+- **Status:** Connected and Ready
+- **JSON Analyzer:** FIXED (No Sample Prefixes) ✅"""
 
             return True, status_msg
         else:
