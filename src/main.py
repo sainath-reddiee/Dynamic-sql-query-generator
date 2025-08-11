@@ -12,10 +12,7 @@ from python_sql_generator import generate_sql_from_json_data
 # Import the NEW enhanced connector with Modin support
 from enhanced_snowflake_connector import (
     render_enhanced_snowflake_connection_ui,
-    render_enhanced_performance_info,
-    render_performance_metrics,
-    MODIN_AVAILABLE,
-    SNOWFLAKE_AVAILABLE
+    render_enhanced_performance_info
 )
 
 # Import the universal analyzer with all necessary functions
@@ -192,7 +189,6 @@ def main():
 
         with main_tab1:
             st.markdown('<h2 class="section-header">🐍 Generate SQL from JSON Input</h2>', unsafe_allow_html=True)
-            # ... (Python tab logic remains the same)
             st.sidebar.header("📥 Data Input for Python Analyzer")
             input_method = st.sidebar.radio(
                 "Choose your input method:",
@@ -250,7 +246,6 @@ def main():
                 st.info("👆 Provide JSON data via the sidebar to begin analysis.")
 
 
-        # --- FIX: Both Standard and Enhanced tabs now use the same enhanced logic ---
         with main_tab2:
             st.markdown('<h2 class="section-header">🏔️ Standard Snowflake Connection (Using Enhanced Logic)</h2>', unsafe_allow_html=True)
             st.markdown("""
@@ -260,7 +255,6 @@ def main():
             """, unsafe_allow_html=True)
             
             st.subheader("🔐 Database Connection")
-            # FIXED: Pass a unique key_prefix for this tab
             std_conn_manager = render_enhanced_snowflake_connection_ui(key_prefix='std')
 
             if std_conn_manager and std_conn_manager.is_connected:
@@ -285,7 +279,6 @@ def main():
             """, unsafe_allow_html=True)
             
             st.subheader("🔐 Enhanced Database Connection")
-            # FIXED: Pass a unique key_prefix for this tab
             enh_conn_manager = render_enhanced_snowflake_connection_ui(key_prefix='enh')
 
             if enh_conn_manager and enh_conn_manager.is_connected:
