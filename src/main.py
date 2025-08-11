@@ -9,9 +9,6 @@ import os
 # Import all required modules from the 'src' directory
 from python_sql_generator import generate_sql_from_json_data
 
-# --- CORRECTED: No longer need the standard snowflake_connector UI functions ---
-# from snowflake_connector import render_snowflake_connection_ui, render_snowflake_operations_ui
-
 # Import the NEW enhanced connector with Modin support
 from enhanced_snowflake_connector import (
     render_enhanced_snowflake_connection_ui,
@@ -32,11 +29,9 @@ from universal_db_analyzer import (
 
 from json_analyzer import analyze_json_structure
 from utils import (
-    find_arrays, find_nested_objects,
-    find_queryable_fields, prettify_json, validate_json_input,
+    prettify_json, validate_json_input,
     export_analysis_results
 )
-from sql_generator import generate_procedure_examples
 from config import config
 
 # Configure logging
@@ -75,22 +70,6 @@ st.markdown("""
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         border: 1px solid #e1e5e9;
     }
-    .metric-card {
-        background: linear-gradient(145deg, #ffffff, #f8f9fa);
-        padding: 1rem;
-        border-radius: 0.6rem;
-        text-align: center;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        border: 1px solid #e9ecef;
-    }
-    .footer {
-        text-align: center;
-        padding: 2rem;
-        margin-top: 3rem;
-        border-top: 2px solid #e9ecef;
-        color: #6c757d;
-        font-size: 0.9rem;
-    }
     .enhanced-box {
         background: linear-gradient(145deg, #e8f5e8, #f1f8e9);
         padding: 1.5rem;
@@ -103,21 +82,9 @@ st.markdown("""
 
 
 def render_enhanced_database_operations_ui(conn_manager, key_prefix=''):
-    """Render enhanced database operations UI with Modin performance tracking"""
+    """Render enhanced database operations UI with unique keys"""
     
     st.markdown("### 🧪 Smart JSON Analysis (FIXED Universal Logic)")
-    st.markdown("""
-    <div class="enhanced-box">
-        <h5 style="color: #2e7d32;">🎯 Key Features:</h5>
-        <ul style="color: #1b5e20;">
-            <li><strong>✅ Fixed "sample_*" prefix bug</strong> - All SQL queries are now correct.</li>
-            <li><strong>🚀 Modin performance acceleration</strong> for large datasets.</li>
-            <li><strong>📊 Real-time progress tracking</strong> during analysis.</li>
-            <li><strong>🏷️ Smart table name resolution</strong> - Works with partial names.</li>
-            <li><strong>💡 Intelligent field suggestions</strong> based on your data.</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     
@@ -210,7 +177,6 @@ def render_enhanced_database_operations_ui(conn_manager, key_prefix=''):
             else:
                 st.warning("⚠️ Please fill in all required fields.")
 
-
 # Main App
 def main():
     try:
@@ -226,12 +192,7 @@ def main():
 
         with main_tab1:
             st.markdown('<h2 class="section-header">🐍 Generate SQL from JSON Input</h2>', unsafe_allow_html=True)
-            st.markdown("""
-            <div class="feature-box">
-            <p>Upload or paste your JSON data below to analyze its structure and instantly generate a corresponding Snowflake SQL query. No database connection is required for this feature.</p>
-            </div>
-            """, unsafe_allow_html=True)
-
+            # ... (Python tab logic remains the same)
             st.sidebar.header("📥 Data Input for Python Analyzer")
             input_method = st.sidebar.radio(
                 "Choose your input method:",
@@ -288,6 +249,7 @@ def main():
             else:
                 st.info("👆 Provide JSON data via the sidebar to begin analysis.")
 
+
         # --- FIX: Both Standard and Enhanced tabs now use the same enhanced logic ---
         with main_tab2:
             st.markdown('<h2 class="section-header">🏔️ Standard Snowflake Connection (Using Enhanced Logic)</h2>', unsafe_allow_html=True)
@@ -298,7 +260,8 @@ def main():
             """, unsafe_allow_html=True)
             
             st.subheader("🔐 Database Connection")
-            std_conn_manager = render_enhanced_snowflake_connection_ui()
+            # FIXED: Pass a unique key_prefix for this tab
+            std_conn_manager = render_enhanced_snowflake_connection_ui(key_prefix='std')
 
             if std_conn_manager and std_conn_manager.is_connected:
                 connectivity_ok, status_msg = test_database_connectivity(std_conn_manager)
@@ -322,7 +285,8 @@ def main():
             """, unsafe_allow_html=True)
             
             st.subheader("🔐 Enhanced Database Connection")
-            enh_conn_manager = render_enhanced_snowflake_connection_ui()
+            # FIXED: Pass a unique key_prefix for this tab
+            enh_conn_manager = render_enhanced_snowflake_connection_ui(key_prefix='enh')
 
             if enh_conn_manager and enh_conn_manager.is_connected:
                 connectivity_ok, status_msg = test_database_connectivity(enh_conn_manager)
