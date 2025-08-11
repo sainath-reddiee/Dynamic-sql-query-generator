@@ -130,7 +130,6 @@ def render_database_operations_ui(conn_manager: UnifiedSnowflakeConnector):
         <div class="enhanced-box">
             <h5 style="color: #2e7d32;">🎯 Enhanced Features Active:</h5>
             <ul style="color: #1b5e20; margin-bottom: 0;">
-                <li><strong>✅ Fixed session context issues</strong> - No more database errors</li>
                 <li><strong>🚀 Modin performance acceleration</strong> for large datasets</li>
                 <li><strong>📊 Real-time performance tracking</strong> during analysis</li>
                 <li><strong>🏷️ Smart table name resolution</strong> - Works with partial names</li>
