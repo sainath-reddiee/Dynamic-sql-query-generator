@@ -1,3 +1,14 @@
+You've run into a common issue in Streamlit when you reuse UI components. The error "There are multiple identical forms with key='enhanced_snowflake_connection_form'" happens because both the "Standard" and "Enhanced" tabs are creating a form with the exact same identifier.
+
+To fix this, we need to make the key for each form and its widgets unique. We can do this by passing a unique prefix to the function for each tab.
+
+Here are the corrected versions of the two files you need to update: src/main.py and src/enhanced_snowflake_connector.py.
+
+1. Corrected src/enhanced_snowflake_connector.py
+This file is updated to accept a key_prefix, which will be added to all widget keys to ensure they are unique.
+
+Python
+
 """
 Enhanced Snowflake Database Connector with Modin support and proper session initialization
 Fixes the "This session does not have a current database" error
@@ -388,89 +399,9 @@ class EnhancedSnowflakeConnectionManager:
                 self.is_connected = False
                 self.connection_params = {}
 
-
-def sample_json_from_database_fixed(conn_manager, table_name: str, json_column: str, 
-                                  sample_size: int = 5) -> Tuple[Optional[list], Optional[str]]:
-    """
-    Enhanced JSON sampling with proper table name handling and context management
-    """
-    if not conn_manager.is_connected:
-        return None, "❌ Not connected to database"
-    
-    try:
-        # Ensure database context
-        if not conn_manager.ensure_session_context():
-            return None, "❌ Failed to establish database session context"
-        
-        # Handle table name - if it doesn't contain a dot, prepend current database.schema
-        if '.' not in table_name:
-            database = conn_manager.connection_params.get('database')
-            schema = conn_manager.connection_params.get('schema', 'PUBLIC')
-            table_name = f"{database}.{schema}.{table_name}"
-        elif table_name.count('.') == 1:
-            # Only schema.table provided, add database
-            database = conn_manager.connection_params.get('database')
-            table_name = f"{database}.{table_name}"
-        
-        # Query to sample JSON data with explicit table qualification
-        sample_query = f"""
-        SELECT {json_column}
-        FROM {table_name}
-        WHERE {json_column} IS NOT NULL
-        LIMIT {sample_size}
-        """
-        
-        result_df, error_msg = conn_manager.execute_query(sample_query)
-        
-        if result_df is None:
-            return None, f"❌ Failed to sample data: {error_msg}"
-        
-        if result_df.empty:
-            return None, f"❌ No data found in {table_name}.{json_column}"
-        
-        # Extract JSON data from the results
-        json_samples = []
-        for _, row in result_df.iterrows():
-            json_value = row[json_column]
-            
-            if json_value is not None:
-                try:
-                    # Handle different JSON storage formats
-                    if isinstance(json_value, str):
-                        parsed_json = json.loads(json_value)
-                    elif isinstance(json_value, dict):
-                        parsed_json = json_value
-                    else:
-                        # Convert to string and try to parse
-                        parsed_json = json.loads(str(json_value))
-                    
-                    json_samples.append(parsed_json)
-                    
-                except (json.JSONDecodeError, TypeError) as e:
-                    logger.warning(f"Failed to parse JSON from row: {e}")
-                    continue
-        
-        if not json_samples:
-            return None, f"❌ No valid JSON found in sampled records from {table_name}.{json_column}"
-        
-        return json_samples, None
-        
-    except Exception as e:
-        error_msg = str(e)
-        
-        # Provide more specific error messages
-        if "does not exist" in error_msg:
-            return None, f"❌ Table {table_name} does not exist or you don't have access to it"
-        elif "Invalid identifier" in error_msg:
-            return None, f"❌ Invalid column name '{json_column}' in table {table_name}"
-        elif "permission" in error_msg.lower():
-            return None, f"❌ Permission denied accessing {table_name}"
-        else:
-            return None, f"❌ Database sampling failed: {error_msg}"
-
-
 # Enhanced connection UI function
-def render_enhanced_snowflake_connection_ui() -> Optional[EnhancedSnowflakeConnectionManager]:
+# FIXED: Added key_prefix to make all widget keys unique
+def render_enhanced_snowflake_connection_ui(key_prefix: str = "") -> Optional[EnhancedSnowflakeConnectionManager]:
     """Render enhanced Snowflake connection UI with better error handling and Modin info"""
     
     if not SNOWFLAKE_AVAILABLE:
@@ -504,8 +435,8 @@ def render_enhanced_snowflake_connection_ui() -> Optional[EnhancedSnowflakeConne
     else:
         st.info("📊 **Standard Mode** - Install Modin for better performance: `pip install modin[ray]`")
 
-    # Connection form
-    with st.form("enhanced_snowflake_connection_form", clear_on_submit=False):
+    # Connection form with a unique key
+    with st.form(f"{key_prefix}_snowflake_connection_form", clear_on_submit=False):
         st.subheader("🔐 Connection Parameters")
         
         col1, col2 = st.columns(2)
@@ -515,20 +446,20 @@ def render_enhanced_snowflake_connection_ui() -> Optional[EnhancedSnowflakeConne
                 "Account Identifier*",
                 placeholder="your-account.region.cloud",
                 help="Your Snowflake account identifier (e.g., abc123.us-east-1.aws)",
-                key="enh_account"
+                key=f"{key_prefix}_account"
             )
             user = st.text_input(
                 "Username*",
                 placeholder="your_username",
                 help="Your Snowflake username",
-                key="enh_user"
+                key=f"{key_prefix}_user"
             )
             password = st.text_input(
                 "Password*",
                 type="password",
                 placeholder="your_password",
                 help="Your Snowflake password",
-                key="enh_password"
+                key=f"{key_prefix}_password"
             )
 
         with col2:
@@ -536,20 +467,20 @@ def render_enhanced_snowflake_connection_ui() -> Optional[EnhancedSnowflakeConne
                 "Warehouse*",
                 placeholder="COMPUTE_WH",
                 help="Warehouse to use for computations",
-                key="enh_warehouse"
+                key=f"{key_prefix}_warehouse"
             )
             database = st.text_input(
                 "Database*",
                 placeholder="your_database",
                 help="Database name (case-sensitive)",
-                key="enh_database"
+                key=f"{key_prefix}_database"
             )
             schema = st.text_input(
                 "Schema*",
                 placeholder="PUBLIC",
                 value="PUBLIC",
                 help="Schema name (case-sensitive)",
-                key="enh_schema"
+                key=f"{key_prefix}_schema"
             )
 
         # Advanced options
@@ -561,7 +492,7 @@ def render_enhanced_snowflake_connection_ui() -> Optional[EnhancedSnowflakeConne
                     "Role",
                     placeholder="your_role",
                     help="Role to assume (leave empty for default)",
-                    key="enh_role"
+                    key=f"{key_prefix}_role"
                 )
             
             with col4:
@@ -571,7 +502,7 @@ def render_enhanced_snowflake_connection_ui() -> Optional[EnhancedSnowflakeConne
                     max_value=300,
                     value=60,
                     help="Connection timeout",
-                    key="enh_timeout"
+                    key=f"{key_prefix}_timeout"
                 )
 
         # Form buttons
@@ -644,7 +575,7 @@ def render_enhanced_snowflake_connection_ui() -> Optional[EnhancedSnowflakeConne
         with st.spinner("⚡ Connecting with enhanced session management..."):
             if conn_manager.connect(connection_params):
                 st.success("✅ **Enhanced Snowflake connection established successfully!**")
-                st.session_state.enhanced_snowflake_connection = conn_manager
+                st.session_state[f'{key_prefix}_snowflake_connection'] = conn_manager
                 st.balloons()
                 return conn_manager
             else:
@@ -652,9 +583,9 @@ def render_enhanced_snowflake_connection_ui() -> Optional[EnhancedSnowflakeConne
                 return None
 
     # Check if already connected
-    if 'enhanced_snowflake_connection' in st.session_state:
-        existing_conn = st.session_state.enhanced_snowflake_connection
-        if existing_conn.is_connected:
+    if f'{key_prefix}_snowflake_connection' in st.session_state:
+        existing_conn = st.session_state[f'{key_prefix}_snowflake_connection']
+        if existing_conn and existing_conn.is_connected:
             st.success("✅ **Enhanced Snowflake connection is active!**")
             return existing_conn
 
