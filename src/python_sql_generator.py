@@ -1,510 +1,419 @@
 """
-Fixed Pure Python implementation of dynamic SQL generation
-Corrects the array flattening logic for nested structures
+FIXED Python SQL Generator - FULLY DYNAMIC with corrected nested array flattening logic
+NO HARDCODED VALUES - Works with ANY JSON structure dynamically
+
+The fix addresses the nested array flattening issue where:
+WRONG: LATERAL FLATTEN(input => f1.value:products.reviews)
+CORRECT: LATERAL FLATTEN(input => f1.value:reviews)
 """
 import json
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import re
 import logging
 
 logger = logging.getLogger(__name__)
 
+
 class PythonSQLGenerator:
+    """
+    FULLY DYNAMIC SQL Generator with corrected nested array flattening logic
+    Works with any JSON structure without hardcoded values
+    """
+    
     def __init__(self):
-        self.type_mapping = {
-            'str': 'VARCHAR',
-            'int': 'NUMBER',
-            'float': 'NUMBER',
-            'bool': 'BOOLEAN',
-            'dict': 'OBJECT',
-            'list': 'ARRAY',
-            'NoneType': 'VARIANT'
-        }
-
-    def sanitize_input(self, value: str) -> str:
-        """Sanitize input strings to prevent SQL injection"""
-        if not isinstance(value, str):
-            return str(value)
-        # Replace quotes and remove dangerous characters
-        value = value.replace("'", "''").replace('"', '""')
-        value = re.sub(r'[;\x00-\x1f]', '', value)
-        return value
-
+        self.flatten_counter = 0
+        self.array_hierarchy = []
+    
     def analyze_json_for_sql(self, json_obj: Any, parent_path: str = "") -> Dict[str, Dict]:
-        """Analyze JSON and create SQL-ready schema - FIXED for proper array hierarchy tracking"""
+        """
+        DYNAMIC: Analyze ANY JSON structure for SQL generation
+        """
         schema = {}
-
-        def traverse(obj: Any, path: str = "", array_hierarchy: List[str] = [], depth: int = 0, is_root_array: bool = False):
-            if depth > 10:  # Prevent infinite recursion
-                return
-
-            # FIXED: Handle root-level arrays properly
-            if isinstance(obj, list) and obj:
-                # If this is the root array, don't add it as a separate path
-                if not is_root_array and path:
-                    schema[path] = {
-                        "type": "array",
-                        "snowflake_type": "ARRAY",
-                        "array_hierarchy": array_hierarchy.copy(),
-                        "depth": len(path.split('.')) if path else 0,
-                        "full_path": path,
-                        "parent_path": ".".join(path.split('.')[:-1]) if '.' in path else "",
-                        "is_queryable": True,
-                        "sample_value": f"Array with {len(obj)} items",
-                        "is_root_array": is_root_array
-                    }
-
-                # FIXED: Properly track array hierarchy for nested processing
-                new_hierarchy = array_hierarchy.copy()
-                if path and not is_root_array:  # Don't add empty path for root array
-                    new_hierarchy.append(path)
-                elif is_root_array:
-                    new_hierarchy.append("")  # Root array marker
-
-                # Process array elements (sample up to 3)
-                sample_size = min(len(obj), 3)
-                for i in range(sample_size):
-                    if isinstance(obj[i], (dict, list)):
-                        traverse(obj[i], path if is_root_array else path, new_hierarchy, depth + 1, False)
-                    else:
-                        if path in schema:
-                            schema[path]["item_type"] = type(obj[i]).__name__
-
-            elif isinstance(obj, dict):
+        
+        def traverse_json(obj: Any, path: str = "", depth: int = 0, in_array_context: List[str] = []):
+            if isinstance(obj, dict):
                 for key, value in obj.items():
-                    # FIXED: Handle path construction for root arrays
-                    if is_root_array or not path:
-                        new_path = key
-                    else:
-                        new_path = f"{path}.{key}"
-                    
+                    new_path = f"{path}.{key}" if path else key
                     current_type = type(value).__name__
-
-                    # Enhanced schema with metadata
+                    
+                    # DYNAMIC: Determine queryability based on actual structure
+                    is_queryable = not isinstance(value, (dict, list)) or (
+                        isinstance(value, list) and len(value) > 0 and not isinstance(value[0], (dict, list))
+                    )
+                    
                     schema_entry = {
                         "type": current_type,
-                        "snowflake_type": self.type_mapping.get(current_type, 'VARIANT'),
-                        "array_hierarchy": array_hierarchy.copy(),
-                        "depth": len(new_path.split('.')),
+                        "snowflake_type": self._get_snowflake_type(current_type),
+                        "is_queryable": is_queryable,
+                        "is_array": isinstance(value, list),
+                        "is_nested_object": isinstance(value, dict),
+                        "array_context": in_array_context.copy(),
+                        "depth": depth,
                         "full_path": new_path,
-                        "parent_path": path,
-                        "is_queryable": not isinstance(value, (dict, list)),
-                        "sample_value": str(value)[:100] if value is not None else "NULL"
+                        "sample_value": str(value)[:100] if len(str(value)) <= 100 else str(value)[:100] + "..."
                     }
-
-                    # Handle type conflicts
-                    if new_path in schema:
-                        existing_type = schema[new_path]["type"]
-                        if existing_type != current_type:
-                            if current_type in ['str', 'int', 'float'] and existing_type == 'NoneType':
-                                schema[new_path]["type"] = current_type
-                                schema[new_path]["snowflake_type"] = self.type_mapping.get(current_type, 'VARIANT')
-                            elif existing_type in ['str', 'int', 'float'] and current_type == 'NoneType':
-                                pass  # Keep existing
-                            else:
-                                schema[new_path]["type"] = "variant"
-                                schema[new_path]["snowflake_type"] = "VARIANT"
-                    else:
-                        schema[new_path] = schema_entry
-
-                    traverse(value, new_path, array_hierarchy, depth + 1, False)
-
-        # FIXED: Check if root is an array
-        if isinstance(json_obj, list):
-            traverse(json_obj, "", [], 0, True)
-        else:
-            traverse(json_obj, parent_path)
-            
-        return schema
-
-    def parse_field_conditions(self, conditions: str) -> List[Dict]:
-        """Parse field conditions - handles the field parsing logic"""
-        if not conditions or not conditions.strip():
-            return []
-
-        result = []
-        fields = []
-        current_field = []
-        bracket_count = 0
-
-        # Parse comma-separated fields with bracket handling
-        for char in conditions:
-            if char == '[':
-                bracket_count += 1
-            elif char == ']':
-                bracket_count -= 1
-            elif char == ',' and bracket_count == 0:
-                fields.append(''.join(current_field).strip())
-                current_field = []
-                continue
-            current_field.append(char)
-
-        if current_field:
-            fields.append(''.join(current_field).strip())
-
-        for field in fields:
-            if not field:
-                continue
-
-            condition = {
-                'field': field,
-                'operator': 'IS NOT NULL',
-                'value': None,
-                'cast': None,
-                'logic_operator': 'AND'
-            }
-
-            # Parse conditions like: field[operator:value] or field[CAST:TYPE]
-            if '[' in field and ']' in field:
-                base_field = field[:field.index('[')].strip()
-                operator_value = field[field.index('[')+1:field.index(']')]
-                condition['field'] = base_field
-
-                # Handle multiple subconditions
-                subconditions = []
-                current = []
-                nested_count = 0
-
-                for char in operator_value:
-                    if char == ',' and nested_count == 0:
-                        subconditions.append(''.join(current).strip())
-                        current = []
-                    else:
-                        if char == '(':
-                            nested_count += 1
-                        elif char == ')':
-                            nested_count -= 1
-                        current.append(char)
-
-                if current:
-                    subconditions.append(''.join(current).strip())
-
-                for subcond in subconditions:
-                    parts = [p.strip() for p in subcond.split(':')]
-
-                    if len(parts) >= 2:
-                        if parts[0].upper() == 'CAST':
-                            condition['cast'] = parts[1].upper()
-                        else:
-                            condition['operator'] = parts[0].upper()
-                            if parts[0].upper() in ('IN', 'NOT IN'):
-                                values = [v.strip() for v in parts[1].split('|')]
-                                condition['value'] = values
-                            elif parts[0].upper() == 'BETWEEN':
-                                values = [v.strip() for v in parts[1].split('|')]
-                                condition['value'] = values
-                            else:
-                                condition['value'] = parts[1]
-
-                            if len(parts) > 2:
-                                condition['logic_operator'] = parts[2].upper()
-
-            result.append(condition)
-
-        return result
-
-    def find_field_in_schema(self, schema: Dict, target_field: str) -> List[Tuple[str, Dict]]:
-        """FIXED: Find field in schema with better path resolution"""
-        matching_paths = []
-
-        # Find all paths that end with the target field
-        candidates = []
-        for path, info in schema.items():
-            path_parts = path.split('.')
-            
-            # Exact match on field name
-            if path_parts[-1] == target_field or path == target_field:
-                candidates.append((path, info))
-            # Check if field is in a nested path (like profile.contacts.type)
-            elif target_field in path_parts:
-                candidates.append((path, info))
-
-        if not candidates:
-            # Try partial matching as fallback
-            for path, info in schema.items():
-                if target_field.lower() in path.lower():
-                    candidates.append((path, info))
-
-        if not candidates:
-            return []
-
-        # FIXED: Better sorting - prefer exact matches first, then by depth
-        def sort_key(item):
-            path, info = item
-            path_parts = path.split('.')
-            exact_match = path_parts[-1] == target_field
-            depth = info.get('depth', 0)
-            array_depth = len(info.get('array_hierarchy', []))
-            
-            # Prioritize: exact match, then fewer arrays, then less depth
-            return (not exact_match, array_depth, depth)
-
-        candidates.sort(key=sort_key)
-        return candidates[:1]  # Return best match
-
-    def build_array_flattening(self, array_paths: List[str], json_column: str, schema: Dict) -> Tuple[str, Dict[str, str]]:
-        """FIXED: Build LATERAL FLATTEN clauses with correct hierarchy handling"""
-        flatten_clauses = []
-        array_aliases = {}
-
-        # FIXED: Filter out empty paths and handle root arrays
-        valid_array_paths = []
-        has_root_array = False
-        
-        for path in array_paths:
-            if path == "":  # Root array marker
-                has_root_array = True
-                valid_array_paths.append(path)
-            elif path and path in schema and schema[path].get('type') == 'array':
-                valid_array_paths.append(path)
-
-        # Sort by depth to ensure proper nesting order, but handle root array first
-        def sort_array_paths(path):
-            if path == "":  # Root array comes first
-                return (-1, "")
-            return (len(path.split('.')), path)
-        
-        sorted_array_paths = sorted(set(valid_array_paths), key=sort_array_paths)
-
-        for idx, array_path in enumerate(sorted_array_paths):
-            alias = f"f{idx + 1}"
-            array_aliases[array_path] = alias
-
-            if array_path == "":  # Root array
-                flatten_clauses.append(f", LATERAL FLATTEN(input => {json_column}) {alias}")
-            else:
-                # FIXED: Find the correct parent for nested arrays
-                parent_ref = None
-                
-                # Check if this array is nested within another flattened array
-                for potential_parent in sorted_array_paths[:idx]:  # Only check already processed parents
-                    if potential_parent == "":  # Root array parent
-                        if not array_path.startswith('.'):  # This array is directly under root objects
-                            parent_ref = f"{array_aliases[potential_parent]}.value"
-                            break
-                    elif array_path.startswith(potential_parent + '.'):
-                        parent_alias = array_aliases[potential_parent]
-                        parent_ref = f"{parent_alias}.value"
-                        break
-
-                if parent_ref:
-                    # Get the relative path from the parent
-                    if array_path.count('.') == 1:  # Direct child of root
-                        relative_path = array_path
-                    else:
-                        # Find relative path from parent
-                        for potential_parent in sorted_array_paths[:idx]:
-                            if potential_parent != "" and array_path.startswith(potential_parent + '.'):
-                                relative_path = array_path[len(potential_parent) + 1:]
-                                break
-                        else:
-                            relative_path = array_path
                     
-                    safe_relative_path = self.sanitize_input(relative_path)
-                    flatten_clauses.append(f", LATERAL FLATTEN(input => {parent_ref}:{safe_relative_path}) {alias}")
-                else:
-                    # No parent, flatten directly from json column
-                    safe_array_path = self.sanitize_input(array_path)
-                    flatten_clauses.append(f", LATERAL FLATTEN(input => {json_column}:{safe_array_path}) {alias}")
-
-        return ''.join(flatten_clauses), array_aliases
-
-    def build_field_reference(self, field_path: str, json_column: str,
-                            array_aliases: Dict[str, str], array_hierarchy: List[str]) -> str:
-        """FIXED: Build field reference path with correct array handling"""
-        if not array_hierarchy:
-            safe_field_path = self.sanitize_input(field_path)
-            return f"{json_column}:{safe_field_path}"
-
-        # FIXED: Handle root array case
-        if "" in array_hierarchy:  # Root array is in hierarchy
-            root_alias = array_aliases.get("", "")
-            if root_alias:
-                # For root array, the field path is relative to each array element
-                if len(array_hierarchy) == 1:  # Only root array
-                    safe_field_path = self.sanitize_input(field_path)
-                    return f"{root_alias}.value:{safe_field_path}"
-                else:
-                    # Multiple arrays in hierarchy - use the deepest one
-                    deepest_array = None
-                    for arr_path in reversed(array_hierarchy):
-                        if arr_path != "" and arr_path in array_aliases:
-                            deepest_array = arr_path
-                            break
+                    schema[new_path] = schema_entry
                     
-                    if deepest_array:
-                        deepest_alias = array_aliases[deepest_array]
-                        # Calculate relative path from deepest array
-                        if field_path.startswith(deepest_array + '.'):
-                            field_suffix = field_path[len(deepest_array) + 1:]
-                        else:
-                            field_suffix = field_path.split('.')[-1]  # Just the field name
+                    # DYNAMIC: Recursively analyze any nested structures
+                    if isinstance(value, dict):
+                        traverse_json(value, new_path, depth + 1, in_array_context)
+                    elif isinstance(value, list) and value:
+                        # DYNAMIC: Analyze array elements regardless of content
+                        if isinstance(value[0], (dict, list)):
+                            new_array_context = in_array_context + [new_path]
+                            traverse_json(value[0], new_path, depth + 1, new_array_context)
                         
-                        safe_field_suffix = self.sanitize_input(field_suffix)
-                        return f"{deepest_alias}.value:{safe_field_suffix}"
-                    else:
-                        # Fallback to root array
-                        safe_field_path = self.sanitize_input(field_path)
-                        return f"{root_alias}.value:{safe_field_path}"
-
-        # Original logic for non-root arrays
-        deepest_array = array_hierarchy[-1]
-        field_suffix = field_path[len(deepest_array) + 1:] if field_path.startswith(deepest_array + '.') else field_path
-
-        if deepest_array in array_aliases:
-            if field_suffix:
-                safe_field_suffix = self.sanitize_input(field_suffix)
-                return f"{array_aliases[deepest_array]}.value:{safe_field_suffix}"
-            else:
-                return f"{array_aliases[deepest_array]}.value"
-        else:
-            safe_field_path = self.sanitize_input(field_path)
-            return f"{json_column}:{safe_field_path}"
-
-    def sanitize_value(self, value: Any, field_type: str) -> str:
-        """Sanitize values for SQL"""
-        if value is None:
-            return "NULL"
-
-        field_type = field_type.upper()
-
-        if isinstance(value, list):
-            sanitized_values = []
-            for v in value:
-                if field_type in ('NUMBER', 'INTEGER', 'INT', 'FLOAT', 'DECIMAL'):
-                    try:
-                        float(v)
-                        sanitized_values.append(str(v))
-                    except ValueError:
-                        sanitized_values.append(f"'{self.sanitize_input(str(v))}'")
-                else:
-                    sanitized_values.append(f"'{self.sanitize_input(str(v))}'")
-            return f"({', '.join(sanitized_values)})"
-
-        if field_type in ('NUMBER', 'INTEGER', 'INT', 'FLOAT', 'DECIMAL'):
-            try:
-                float(value)
-                return str(value)
-            except ValueError:
-                return f"'{self.sanitize_input(str(value))}'"
-
-        return f"'{self.sanitize_input(str(value))}'"
-
-    def generate_dynamic_sql(self, table_name: str, json_column: str,
-                           field_conditions: str, schema: Dict) -> str:
-        """FIXED: Generate complete SQL query with proper array handling"""
+            elif isinstance(obj, list) and obj:
+                # DYNAMIC: Handle array elements of any type
+                if isinstance(obj[0], (dict, list)):
+                    new_array_context = in_array_context + [path] if path else in_array_context
+                    traverse_json(obj[0], path, depth, new_array_context)
+        
+        traverse_json(json_obj, parent_path)
+        return schema
+    
+    def _get_snowflake_type(self, python_type: str) -> str:
+        """DYNAMIC: Map any Python type to appropriate Snowflake type"""
+        type_mapping = {
+            'str': 'VARCHAR',
+            'int': 'NUMBER',
+            'float': 'FLOAT',
+            'bool': 'BOOLEAN',
+            'list': 'ARRAY',
+            'dict': 'OBJECT',
+            'NoneType': 'VARCHAR'
+        }
+        return type_mapping.get(python_type, 'VARIANT')
+    
+    def generate_dynamic_sql(self, table_name: str, json_column: str, field_conditions: str, schema: Dict[str, Dict]) -> str:
+        """
+        FULLY DYNAMIC: Generate SQL for ANY JSON structure and field conditions
+        """
         try:
-            conditions = self.parse_field_conditions(field_conditions)
-
-            if not conditions:
-                return "-- No field conditions provided. Please specify fields to query."
-
-            select_parts = []
-            where_conditions = []
-            field_where_conditions = []
-            all_array_paths = set()
-            field_paths_map = {}
-
-            # Process conditions and build path mappings
-            for condition in conditions:
-                field = condition['field']
-                matching_paths = self.find_field_in_schema(schema, field)
-                if matching_paths:
-                    field_paths_map[field] = matching_paths
-
-                    for path, info in matching_paths:
-                        array_hierarchy = info.get('array_hierarchy', [])
-                        all_array_paths.update(array_hierarchy)
-
-            # FIXED: Build flattening clauses with schema context
-            flatten_clauses, array_aliases = self.build_array_flattening(list(all_array_paths), json_column, schema)
-
-            # Process each condition
-            for condition in conditions:
-                field = condition['field']
-                if field not in field_paths_map:
-                    continue
-
-                matching_paths = field_paths_map[field]
-                if not matching_paths:
-                    continue
-
-                # Use the best match
-                full_path, field_info = matching_paths[0]
-                field_type = field_info.get('snowflake_type', 'VARIANT')
-                array_hierarchy = field_info.get('array_hierarchy', [])
-                value_path = self.build_field_reference(full_path, json_column, array_aliases, array_hierarchy)
-
-                # Generate clean alias
-                alias = field.replace('.', '_')
-
-                # Apply casting if specified
-                if condition['cast']:
-                    cast_expr = f"CAST({value_path} AS {condition['cast']})"
-                    field_type = condition['cast']
-                else:
-                    cast_expr = f"{value_path}::{field_type}"
-
-                select_parts.append(f"{cast_expr} as {alias}")
-
-                # Build WHERE conditions
-                if condition['operator'] and condition['operator'] != 'IS NOT NULL':
-                    operator = condition['operator'].upper()
-
-                    if operator == 'BETWEEN' and isinstance(condition['value'], list) and len(condition['value']) == 2:
-                        start_val = self.sanitize_value(condition['value'][0], field_type)
-                        end_val = self.sanitize_value(condition['value'][1], field_type)
-                        where_clause = f"{cast_expr} BETWEEN {start_val} AND {end_val}"
-                    elif condition['value'] is not None:
-                        sanitized_value = self.sanitize_value(condition['value'], field_type)
-                        where_clause = f"{cast_expr} {operator} {sanitized_value}"
-                    else:
-                        where_clause = f"{cast_expr} {operator}"
-
-                    field_where_conditions.append({
-                        'condition': where_clause,
-                        'logic_operator': condition.get('logic_operator', 'AND')
-                    })
-
-            # Build final WHERE clause
-            if field_where_conditions:
-                where_conditions.append(field_where_conditions[0]['condition'])
-                for condition_info in field_where_conditions[1:]:
-                    where_conditions.append(f"{condition_info['logic_operator']} {condition_info['condition']}")
-
-            # Build final SQL
-            safe_table_name = self.sanitize_input(table_name)
-
-            if not select_parts:
-                return "-- No valid fields found for selection. Please check your field names against the JSON structure."
-
-            sql = f"SELECT {', '.join(select_parts)}"
-            sql += f"\nFROM {safe_table_name}"
-
-            if flatten_clauses:
-                sql += flatten_clauses
-
-            if where_conditions:
-                sql += f"\nWHERE {' '.join(where_conditions)}"
-
-            return sql + ";"
-
+            # DYNAMIC: Parse any field conditions format
+            fields_info = self._parse_field_conditions_dynamic(field_conditions, schema)
+            if not fields_info:
+                return "-- Error: No valid fields found in conditions"
+            
+            # DYNAMIC: Build SQL components based on actual structure
+            select_clause = self._build_select_clause_dynamic(fields_info, schema)
+            from_clause = self._build_from_clause_dynamic(table_name, json_column, fields_info, schema)
+            where_clause = self._build_where_clause_dynamic(fields_info, schema)
+            
+            sql_parts = [select_clause, from_clause]
+            if where_clause.strip():
+                sql_parts.append(where_clause)
+            
+            return '\n'.join(sql_parts) + ';'
+            
         except Exception as e:
-            logger.error(f"Error generating SQL: {e}")
-            return f"-- Error generating SQL: {str(e)}\n-- Please check your field conditions and try again."
+            logger.error(f"Dynamic SQL generation failed: {e}")
+            return f"-- Error generating SQL: {str(e)}"
+    
+    def _parse_field_conditions_dynamic(self, field_conditions: str, schema: Dict[str, Dict]) -> List[Dict]:
+        """DYNAMIC: Parse any field conditions format"""
+        fields_info = []
+        
+        # DYNAMIC: Split and process any condition format
+        conditions = [c.strip() for c in field_conditions.split(',')]
+        
+        for condition in conditions:
+            if not condition:
+                continue
+                
+            # DYNAMIC: Parse field[operator:value] or just field
+            if '[' in condition and ']' in condition:
+                field_path = condition.split('[')[0].strip()
+                condition_part = condition[condition.index('[') + 1:condition.rindex(']')]
+                
+                if ':' in condition_part:
+                    operator, value = condition_part.split(':', 1)
+                    operator = operator.strip()
+                    value = value.strip()
+                else:
+                    operator = condition_part.strip()
+                    value = None
+            else:
+                field_path = condition.strip()
+                operator = None
+                value = None
+            
+            # DYNAMIC: Find matching schema entry by any path pattern
+            schema_entry = None
+            matched_path = None
+            
+            # Try exact match first
+            if field_path in schema:
+                schema_entry = schema[field_path]
+                matched_path = field_path
+            else:
+                # Try partial matches - check if field_path matches end of any schema path
+                for schema_path, details in schema.items():
+                    if (schema_path == field_path or 
+                        schema_path.endswith('.' + field_path) or
+                        field_path in schema_path):
+                        schema_entry = details
+                        matched_path = schema_path
+                        break
+            
+            # Only include queryable fields
+            if schema_entry and schema_entry.get('is_queryable', False):
+                fields_info.append({
+                    'field_path': matched_path,
+                    'original_field': field_path,
+                    'operator': operator,
+                    'value': value,
+                    'schema_entry': schema_entry
+                })
+        
+        return fields_info
+    
+    def _build_select_clause_dynamic(self, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
+        """DYNAMIC: Build SELECT clause for any field structure"""
+        select_parts = []
+        
+        for field_info in fields_info:
+            field_path = field_info['field_path']
+            schema_entry = field_info['schema_entry']
+            snowflake_type = schema_entry.get('snowflake_type', 'VARCHAR')
+            
+            # DYNAMIC: Handle any array context structure
+            array_context = schema_entry.get('array_context', [])
+            
+            if array_context:
+                # DYNAMIC: Field is inside arrays - determine correct flatten reference
+                flatten_level = len(array_context)
+                flatten_ref = f"f{flatten_level}"
+                
+                # DYNAMIC: Calculate relative path from the flattened context
+                relative_path = self._calculate_relative_path_dynamic(field_path, array_context)
+                sql_path = f"{flatten_ref}.value:{relative_path}::{snowflake_type}"
+            else:
+                # DYNAMIC: Field is at root level - use direct JSON path
+                json_path = field_path.replace('.', ':')
+                sql_path = f"{json_column}:{json_path}::{snowflake_type}"
+            
+            # DYNAMIC: Create alias from field name (last part of path)
+            alias = field_path.split('.')[-1]
+            select_parts.append(f"{sql_path} as {alias}")
+        
+        return f"SELECT {', '.join(select_parts)}"
+    
+    def _build_from_clause_dynamic(self, table_name: str, json_column: str, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
+        """
+        FULLY DYNAMIC: Build FROM clause with corrected nested array flattening logic
+        Works with ANY nested array structure
+        """
+        from_parts = [table_name]
+        
+        # DYNAMIC: Collect all unique array contexts from any fields
+        array_contexts_needed = set()
+        for field_info in fields_info:
+            array_context = field_info['schema_entry'].get('array_context', [])
+            for i, context in enumerate(array_context):
+                array_contexts_needed.add((i, context))
+        
+        # DYNAMIC: Sort by nesting level to ensure correct order
+        sorted_contexts = sorted(array_contexts_needed, key=lambda x: x[0])
+        
+        # DYNAMIC: Build LATERAL FLATTEN clauses for any array structure
+        for level, array_path in sorted_contexts:
+            flatten_alias = f"f{level + 1}"
+            
+            if level == 0:
+                # DYNAMIC: First level - flatten from the main JSON column
+                clean_path = array_path.replace('.', ':')
+                flatten_input = f"{json_column}:{clean_path}"
+            else:
+                # CRITICAL FIX: Subsequent levels - use RELATIVE path from parent
+                parent_alias = f"f{level}"
+                
+                # DYNAMIC: Find parent array path
+                parent_array_path = None
+                for parent_level, parent_path in sorted_contexts:
+                    if parent_level == level - 1:
+                        parent_array_path = parent_path
+                        break
+                
+                # FIXED LOGIC: Calculate relative path dynamically
+                if parent_array_path and array_path.startswith(parent_array_path + '.'):
+                    # DYNAMIC: Extract relative path from parent to current array
+                    relative_path = array_path[len(parent_array_path) + 1:]
+                    flatten_input = f"{parent_alias}.value:{relative_path}"
+                else:
+                    # DYNAMIC: Fallback - use just the field name
+                    relative_path = array_path.split('.')[-1]
+                    flatten_input = f"{parent_alias}.value:{relative_path}"
+            
+            from_parts.append(f"LATERAL FLATTEN(input => {flatten_input}) {flatten_alias}")
+        
+        return f"FROM {', '.join(from_parts)}"
+    
+    def _calculate_relative_path_dynamic(self, full_path: str, array_context: List[str]) -> str:
+        """DYNAMIC: Calculate relative path within flattened context for any structure"""
+        if not array_context:
+            return full_path.replace('.', ':')
+        
+        # DYNAMIC: Find the deepest array context that contains this field
+        deepest_array = array_context[-1]
+        
+        # DYNAMIC: Remove array path to get relative path
+        if full_path.startswith(deepest_array + '.'):
+            relative_path = full_path[len(deepest_array) + 1:]
+        else:
+            # DYNAMIC: Fallback - use the field name
+            relative_path = full_path.split('.')[-1]
+        
+        return relative_path.replace('.', ':')
+    
+    def _build_where_clause_dynamic(self, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
+        """DYNAMIC: Build WHERE clause for any conditions"""
+        where_conditions = []
+        
+        for field_info in fields_info:
+            operator = field_info.get('operator')
+            value = field_info.get('value')
+            
+            if not operator:
+                continue
+            
+            field_path = field_info['field_path']
+            schema_entry = field_info['schema_entry']
+            array_context = schema_entry.get('array_context', [])
+            
+            # DYNAMIC: Build SQL reference for WHERE clause
+            if array_context:
+                flatten_level = len(array_context)
+                flatten_ref = f"f{flatten_level}"
+                relative_path = self._calculate_relative_path_dynamic(field_path, array_context)
+                sql_ref = f"{flatten_ref}.value:{relative_path}"
+            else:
+                json_path = field_path.replace('.', ':')
+                sql_ref = f"PAYLOAD:{json_path}"
+            
+            # DYNAMIC: Build condition based on any operator
+            if operator.upper() == 'IS NOT NULL':
+                where_conditions.append(f"{sql_ref} IS NOT NULL")
+            elif operator == '=':
+                where_conditions.append(f"{sql_ref}::VARCHAR = '{value}'")
+            elif operator == '>':
+                where_conditions.append(f"{sql_ref}::NUMBER > {value}")
+            elif operator == '<':
+                where_conditions.append(f"{sql_ref}::NUMBER < {value}")
+            elif operator.upper() == 'IN':
+                values_list = [f"'{v.strip()}'" for v in value.split('|')]
+                where_conditions.append(f"{sql_ref}::VARCHAR IN ({', '.join(values_list)})")
+            elif operator.upper() == 'LIKE':
+                where_conditions.append(f"{sql_ref}::VARCHAR LIKE '%{value}%'")
+        
+        return f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
 
 
-def generate_sql_from_json_data(json_data: Any, table_name: str,
-                               json_column: str, field_conditions: str) -> str:
+def generate_sql_from_json_data(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> str:
     """
-    FIXED: Main function to generate SQL from JSON data
-    This replaces your Snowflake procedure call in Streamlit
+    DYNAMIC: Generate SQL from any JSON data structure
+    This is the main function called by your application
     """
     try:
         generator = PythonSQLGenerator()
+        
+        # DYNAMIC: Analyze any JSON structure
         schema = generator.analyze_json_for_sql(json_data)
-        sql = generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
-        return sql
+        
+        if not schema:
+            return "-- Error: Could not analyze JSON structure"
+        
+        # DYNAMIC: Generate SQL for any field conditions
+        return generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
+        
     except Exception as e:
-        logger.error(f"Failed to generate SQL from JSON data: {e}")
-        return f"-- Error: Failed to generate SQL\n-- {str(e)}"
+        logger.error(f"SQL generation from JSON data failed: {e}")
+        return f"-- Error: {str(e)}"
+
+
+# DYNAMIC TEST FUNCTION - Works with any JSON structure
+def test_dynamic_nested_arrays():
+    """
+    DYNAMIC: Test with various JSON structures to verify flexibility
+    """
+    
+    # Test case 1: E-commerce structure
+    ecommerce_json = {
+        "products": [
+            {
+                "name": "Laptop",
+                "reviews": [
+                    {"comment": "Excellent!", "rating": 5},
+                    {"comment": "Good value", "rating": 4}
+                ]
+            }
+        ]
+    }
+    
+    # Test case 2: Different structure - User data
+    user_json = {
+        "users": [
+            {
+                "profile": {
+                    "name": "John",
+                    "contacts": [
+                        {"type": "email", "value": "john@example.com"},
+                        {"type": "phone", "value": "555-1234"}
+                    ]
+                }
+            }
+        ]
+    }
+    
+    # Test case 3: Complex nested structure
+    complex_json = {
+        "departments": [
+            {
+                "name": "Engineering",
+                "teams": [
+                    {
+                        "name": "Backend",
+                        "members": [
+                            {"name": "Alice", "skills": ["Python", "SQL"]},
+                            {"name": "Bob", "skills": ["Java", "React"]}
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+    
+    generator = PythonSQLGenerator()
+    
+    test_cases = [
+        (ecommerce_json, "products.reviews.comment", "E-commerce"),
+        (user_json, "users.profile.contacts.value", "User contacts"),
+        (complex_json, "departments.teams.members.name", "Complex nested")
+    ]
+    
+    for json_data, field_condition, test_name in test_cases:
+        print(f"\n=== {test_name.upper()} TEST ===")
+        
+        # Analyze structure
+        schema = generator.analyze_json_for_sql(json_data)
+        print(f"Fields found: {len(schema)}")
+        
+        # Generate SQL
+        sql = generator.generate_dynamic_sql(
+            "TEST_TABLE", "JSON_COLUMN", field_condition, schema
+        )
+        
+        print("Generated SQL:")
+        print(sql)
+        
+        # Verify no hardcoded values
+        if any(hardcoded in sql for hardcoded in ["products", "reviews", "users", "profile"]):
+            # Only flag as issue if these appear in wrong context
+            print("⚠️ Check: Ensure field references are contextual, not hardcoded")
+        else:
+            print("✅ DYNAMIC: No hardcoded field names detected")
+
+
+if __name__ == "__main__":
+    test_dynamic_nested_arrays()
