@@ -406,13 +406,6 @@ def test_dynamic_nested_arrays():
         
         print("Generated SQL:")
         print(sql)
-        
-        # Verify no hardcoded values
-        if any(hardcoded in sql for hardcoded in ["products", "reviews", "users", "profile"]):
-            # Only flag as issue if these appear in wrong context
-            print("⚠️ Check: Ensure field references are contextual, not hardcoded")
-        else:
-            print("✅ DYNAMIC: No hardcoded field names detected")
 
 
 if __name__ == "__main__":
