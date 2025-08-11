@@ -1,14 +1,3 @@
-You've run into a common issue in Streamlit when you reuse UI components. The error "There are multiple identical forms with key='enhanced_snowflake_connection_form'" happens because both the "Standard" and "Enhanced" tabs are creating a form with the exact same identifier.
-
-To fix this, we need to make the key for each form and its widgets unique. We can do this by passing a unique prefix to the function for each tab.
-
-Here are the corrected versions of the two files you need to update: src/main.py and src/enhanced_snowflake_connector.py.
-
-1. Corrected src/enhanced_snowflake_connector.py
-This file is updated to accept a key_prefix, which will be added to all widget keys to ensure they are unique.
-
-Python
-
 """
 Enhanced Snowflake Database Connector with Modin support and proper session initialization
 Fixes the "This session does not have a current database" error
@@ -399,8 +388,7 @@ class EnhancedSnowflakeConnectionManager:
                 self.is_connected = False
                 self.connection_params = {}
 
-# Enhanced connection UI function
-# FIXED: Added key_prefix to make all widget keys unique
+
 def render_enhanced_snowflake_connection_ui(key_prefix: str = "") -> Optional[EnhancedSnowflakeConnectionManager]:
     """Render enhanced Snowflake connection UI with better error handling and Modin info"""
     
@@ -429,13 +417,11 @@ def render_enhanced_snowflake_connection_ui(key_prefix: str = "") -> Optional[En
     </div>
     """, unsafe_allow_html=True)
 
-    # Show Modin status
     if MODIN_AVAILABLE:
         st.success("🚀 **Modin Acceleration Active** - Large query results will be processed up to 4x faster!")
     else:
         st.info("📊 **Standard Mode** - Install Modin for better performance: `pip install modin[ray]`")
 
-    # Connection form with a unique key
     with st.form(f"{key_prefix}_snowflake_connection_form", clear_on_submit=False):
         st.subheader("🔐 Connection Parameters")
         
@@ -483,7 +469,6 @@ def render_enhanced_snowflake_connection_ui(key_prefix: str = "") -> Optional[En
                 key=f"{key_prefix}_schema"
             )
 
-        # Advanced options
         with st.expander("🔧 Advanced Options"):
             col3, col4 = st.columns(2)
             
@@ -505,7 +490,6 @@ def render_enhanced_snowflake_connection_ui(key_prefix: str = "") -> Optional[En
                     key=f"{key_prefix}_timeout"
                 )
 
-        # Form buttons
         col5, col6 = st.columns(2)
 
         with col5:
@@ -514,7 +498,6 @@ def render_enhanced_snowflake_connection_ui(key_prefix: str = "") -> Optional[En
         with col6:
             connect_button = st.form_submit_button("⚡ Connect with Enhanced Mode", type="primary")
 
-    # Validate required fields
     required_fields = {
         'Account': account,
         'Username': user,
@@ -531,7 +514,6 @@ def render_enhanced_snowflake_connection_ui(key_prefix: str = "") -> Optional[En
             st.error(f"❌ Please fill in required fields: {', '.join(missing_fields)}")
             return None
 
-    # Build connection parameters
     connection_params = {
         'account': account,
         'user': user,
@@ -545,32 +527,18 @@ def render_enhanced_snowflake_connection_ui(key_prefix: str = "") -> Optional[En
     if role and role.strip():
         connection_params['role'] = role
 
-    # Initialize enhanced connection manager
     conn_manager = EnhancedSnowflakeConnectionManager()
 
-    # Handle test connection
     if test_connection and not missing_fields:
         with st.spinner("🔄 Testing enhanced connection..."):
             success, message = conn_manager.test_connection(connection_params)
-
             if success:
                 st.success(message)
                 st.balloons()
             else:
                 st.error(message)
-                
-                # Provide troubleshooting tips
-                st.markdown("""
-                **🔧 Troubleshooting Tips:**
-                - Ensure your account identifier is correct (format: account.region.cloud)
-                - Verify database and schema names are case-sensitive and exist
-                - Check that your user has appropriate permissions
-                - Consider specifying a role if using SSO or complex permission setup
-                """)
+        return None
 
-        return None  # Don't connect, just test
-
-    # Handle actual connection
     if connect_button and not missing_fields:
         with st.spinner("⚡ Connecting with enhanced session management..."):
             if conn_manager.connect(connection_params):
@@ -582,7 +550,6 @@ def render_enhanced_snowflake_connection_ui(key_prefix: str = "") -> Optional[En
                 st.error("❌ Failed to establish enhanced connection")
                 return None
 
-    # Check if already connected
     if f'{key_prefix}_snowflake_connection' in st.session_state:
         existing_conn = st.session_state[f'{key_prefix}_snowflake_connection']
         if existing_conn and existing_conn.is_connected:
