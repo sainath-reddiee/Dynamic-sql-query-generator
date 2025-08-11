@@ -9,14 +9,11 @@ import os
 # Import all required modules from the 'src' directory
 from python_sql_generator import generate_sql_from_json_data
 
-# Import both regular and enhanced connectors
-from snowflake_connector import render_snowflake_connection_ui, render_snowflake_operations_ui
-
-# Import the NEW enhanced connector with Modin support
-from enhanced_snowflake_connector import (
-    EnhancedSnowflakeConnectionManager, 
-    render_enhanced_snowflake_connection_ui,
-    render_enhanced_performance_info,
+# UNIFIED: Import the new unified connector instead of both separate ones
+from unified_snowflake_connector import (
+    UnifiedSnowflakeConnector, 
+    render_unified_connection_ui,
+    render_performance_info,
     render_performance_metrics,
     MODIN_AVAILABLE,
     SNOWFLAKE_AVAILABLE
@@ -24,14 +21,10 @@ from enhanced_snowflake_connector import (
 
 from universal_db_analyzer import (
     generate_database_driven_sql,
-    generate_database_driven_sql_enhanced,
-    analyze_database_json_schema_enhanced,
+    analyze_database_json_schema_universal,
     render_enhanced_database_json_preview,
     test_database_connectivity
 )
-
-
-
 
 from json_analyzer import analyze_json_structure
 from utils import (
@@ -101,35 +94,58 @@ st.markdown("""
         border: 2px solid #81c784;
         margin-bottom: 1rem;
     }
+    .mode-selector {
+        background: linear-gradient(145deg, #fff3e0, #fafafa);
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #ffb74d;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 
-def render_enhanced_database_operations_ui(conn_manager):
-    """Render enhanced database operations UI with Modin performance tracking"""
-
-    # Enhanced JSON Analysis Section
-    st.markdown("### 🧪 Smart JSON Analysis (Enhanced with Modin)")
-    st.markdown("""
-    <div class="enhanced-box">
-        <h5 style="color: #2e7d32;">🎯 Enhanced Features:</h5>
-        <ul style="color: #1b5e20;">
-            <li><strong>✅ Fixed session context issues</strong> - No more database errors</li>
-            <li><strong>🚀 Modin performance acceleration</strong> for large datasets</li>
-            <li><strong>📊 Real-time progress tracking</strong> during analysis</li>
-            <li><strong>🏷️ Smart table name resolution</strong> - Works with partial names</li>
-            <li><strong>💡 Intelligent field suggestions</strong> based on your data</li>
-        </ul>
+def render_database_operations_ui(conn_manager: UnifiedSnowflakeConnector):
+    """Unified operations UI that works for both standard and enhanced modes"""
+    
+    # Display current mode information
+    mode_text = "Enhanced" if conn_manager.enhanced_mode else "Standard"
+    mode_color = "#2e7d32" if conn_manager.enhanced_mode else "#1976d2"
+    mode_icon = "⚡" if conn_manager.enhanced_mode else "🏔️"
+    
+    st.markdown(f"""
+    <div class="mode-selector">
+        <h5 style="color: {mode_color}; margin-bottom: 0.5rem;">{mode_icon} Currently in {mode_text} Mode</h5>
+        <p style="margin-bottom: 0; font-size: 0.9rem;">
+            {'🛡️ Session context management + 🚀 Modin acceleration + 📊 Performance tracking' if conn_manager.enhanced_mode else '📊 Basic connectivity with standard pandas processing'}
+        </p>
     </div>
     """, unsafe_allow_html=True)
+
+    # Smart JSON Analysis Section
+    st.markdown("### 🧪 Smart JSON Analysis")
+    
+    if conn_manager.enhanced_mode:
+        st.markdown("""
+        <div class="enhanced-box">
+            <h5 style="color: #2e7d32;">🎯 Enhanced Features Active:</h5>
+            <ul style="color: #1b5e20; margin-bottom: 0;">
+                <li><strong>✅ Fixed session context issues</strong> - No more database errors</li>
+                <li><strong>🚀 Modin performance acceleration</strong> for large datasets</li>
+                <li><strong>📊 Real-time performance tracking</strong> during analysis</li>
+                <li><strong>🏷️ Smart table name resolution</strong> - Works with partial names</li>
+                <li><strong>💡 Intelligent field suggestions</strong> based on your data</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
 
     with col1:
-        table_name_enh = st.text_input(
+        table_name = st.text_input(
             "Table Name* 🏗️",
             placeholder="SCHEMA.TABLE or just TABLE_NAME",
-            key="enh_table_name",
+            key="unified_table_name",
             help="Can be just table name, schema.table, or database.schema.table"
         )
 
@@ -137,39 +153,39 @@ def render_enhanced_database_operations_ui(conn_manager):
             "Analysis Sample Size 📊",
             [5, 10, 20, 50],
             index=1,
-            key="enh_sample_size",
+            key="unified_sample_size",
             help="Larger samples give better schema analysis but take longer"
         )
 
     with col2:
-        json_column_enh = st.text_input(
+        json_column = st.text_input(
             "JSON Column Name* 📄",
             placeholder="json_data",
-            key="enh_json_column",
+            key="unified_json_column",
             help="Name of the column containing JSON data"
         )
 
         show_preview = st.checkbox(
             "Show Detailed Schema Preview 👀",
             value=True,
-            key="enh_show_preview",
+            key="unified_show_preview",
             help="Display comprehensive analysis of discovered JSON fields"
         )
 
-    field_conditions_enh = st.text_area(
+    field_conditions = st.text_area(
         "Field Conditions* 🎯",
         height=100,
         placeholder="e.g., name, age[>:18], status[=:active]",
-        key="enh_field_conditions",
+        key="unified_field_conditions",
         help="Specify JSON fields and their filtering conditions"
     )
 
-    # Smart suggestions section
-    if 'discovered_schema_enhanced' in st.session_state:
+    # Smart suggestions section (for enhanced mode)
+    if conn_manager.enhanced_mode and 'discovered_schema_unified' in st.session_state:
         with st.expander("💡 Smart Field Suggestions (Based on Your Data)"):
             try:
-                from enhanced_db_json_analyzer import render_enhanced_field_suggestions
-                suggestions = render_enhanced_field_suggestions(st.session_state.discovered_schema_enhanced)
+                from universal_db_analyzer import render_enhanced_field_suggestions
+                suggestions = render_enhanced_field_suggestions(st.session_state.discovered_schema_unified)
 
                 if suggestions:
                     st.markdown("**🎯 Suggested field conditions based on your JSON data:**")
@@ -177,8 +193,8 @@ def render_enhanced_database_operations_ui(conn_manager):
                     for i, suggestion in enumerate(suggestions[:8]):
                         col_idx = i % 2
                         with cols[col_idx]:
-                            if st.button(f"Use: `{suggestion}`", key=f"use_enh_suggestion_{i}"):
-                                st.session_state.enh_field_conditions = suggestion
+                            if st.button(f"Use: `{suggestion}`", key=f"use_unified_suggestion_{i}"):
+                                st.session_state.unified_field_conditions = suggestion
                                 st.rerun()
                             st.code(suggestion, language="text")
                 else:
@@ -190,19 +206,19 @@ def render_enhanced_database_operations_ui(conn_manager):
 
     with col3:
         if st.button("🔍 Analyze Schema Only", type="secondary"):
-            if table_name_enh and json_column_enh:
+            if table_name and json_column:
                 try:
-                    with st.spinner("🔄 Enhanced schema analysis in progress..."):
-                        schema, error, metadata = analyze_database_json_schema_enhanced(
-                            conn_manager, table_name_enh, json_column_enh, sample_size
+                    with st.spinner(f"🔄 {'Enhanced' if conn_manager.enhanced_mode else 'Standard'} schema analysis in progress..."):
+                        schema, error, metadata = analyze_database_json_schema_universal(
+                            conn_manager, table_name, json_column, sample_size
                         )
 
                         if schema:
-                            st.success(f"✅ Enhanced schema analysis complete! Found {len(schema)} fields.")
+                            st.success(f"✅ {'Enhanced' if conn_manager.enhanced_mode else 'Standard'} schema analysis complete! Found {len(schema)} fields.")
 
                             # Store in session state for suggestions
-                            st.session_state.discovered_schema_enhanced = schema
-                            st.session_state.schema_metadata_enhanced = metadata
+                            st.session_state.discovered_schema_unified = schema
+                            st.session_state.schema_metadata_unified = metadata
 
                             if show_preview:
                                 render_enhanced_database_json_preview(schema, metadata)
@@ -210,27 +226,30 @@ def render_enhanced_database_operations_ui(conn_manager):
                             st.error(error)
 
                 except Exception as e:
-                    st.error(f"❌ Enhanced schema analysis failed: {str(e)}")
+                    st.error(f"❌ Schema analysis failed: {str(e)}")
                     st.info("💡 This might be due to table access permissions or connection issues.")
             else:
                 st.warning("⚠️ Please provide table name and JSON column.")
 
     with col4:
-        if st.button("🚀 Analyze & Execute (Performance Mode)", type="primary"):
-            if all([table_name_enh, json_column_enh, field_conditions_enh]):
-                try:
-                    # Use the enhanced database-driven analysis with performance monitoring
-                    with st.spinner("⚡ Enhanced analysis with Modin acceleration..."):
-                        generated_sql, sql_error = generate_database_driven_sql_enhanced(
-                            conn_manager, table_name_enh, json_column_enh, field_conditions_enh
-                        )
+        analyze_and_execute = st.button(f"🚀 Analyze & Execute ({mode_text} Mode)", type="primary")
 
-                        if generated_sql and not sql_error:
-                            st.success("✅ Enhanced SQL Generated Successfully!")
-                            st.code(generated_sql, language="sql")
+        if analyze_and_execute and all([table_name, json_column, field_conditions]):
+            try:
+                # Generate SQL using the universal database-driven analysis
+                with st.spinner(f"⚡ {'Enhanced' if conn_manager.enhanced_mode else 'Standard'} analysis in progress..."):
+                    generated_sql, sql_error = generate_database_driven_sql(
+                        conn_manager, table_name, json_column, field_conditions
+                    )
 
-                            # Execute with performance monitoring
-                            with st.spinner("⚡ Executing with performance tracking..."):
+                    if generated_sql and not sql_error:
+                        st.success("✅ SQL Generated Successfully!")
+                        st.code(generated_sql, language="sql")
+
+                        # Execute with appropriate method based on connector mode
+                        if conn_manager.enhanced_mode:
+                            # Enhanced mode: Use performance tracking
+                            with st.spinner("⚡ Executing with performance monitoring..."):
                                 result_df, exec_error, perf_stats = conn_manager.execute_query_with_performance(generated_sql)
 
                                 if result_df is not None:
@@ -256,7 +275,7 @@ def render_enhanced_database_operations_ui(conn_manager):
                                         csv_data = result_df.to_csv(index=False).encode('utf-8')
                                         filename = f"enhanced_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
                                         st.download_button(
-                                            "📥 Download Enhanced Results",
+                                            "📥 Download Results",
                                             data=csv_data,
                                             file_name=filename,
                                             mime="text/csv"
@@ -267,84 +286,195 @@ def render_enhanced_database_operations_ui(conn_manager):
                                 else:
                                     st.error(f"❌ Query execution failed: {exec_error}")
                         else:
-                            st.error(f"❌ SQL Generation Error: {sql_error}")
+                            # Standard mode: Basic execution
+                            with st.spinner("🔄 Executing query in standard mode..."):
+                                result_df, exec_error = conn_manager.execute_query(generated_sql)
 
-                except Exception as e:
-                    st.error(f"❌ Enhanced analysis failed: {str(e)}")
-                    st.info("💡 Try checking your table name, column name, and database permissions.")
-            else:
-                st.warning("⚠️ Please fill in all required fields.")
+                                if result_df is not None:
+                                    st.success("✅ Query executed successfully!")
 
-    # Custom SQL section with performance monitoring
+                                    # Results summary
+                                    col_sum1, col_sum2 = st.columns(2)
+                                    with col_sum1:
+                                        st.metric("Rows Returned", len(result_df))
+                                    with col_sum2:
+                                        st.metric("Columns", len(result_df.columns))
+
+                                    st.dataframe(result_df, use_container_width=True)
+
+                                    # Download option
+                                    if not result_df.empty:
+                                        csv_data = result_df.to_csv(index=False).encode('utf-8')
+                                        filename = f"standard_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                                        st.download_button(
+                                            "📥 Download Results",
+                                            data=csv_data,
+                                            file_name=filename,
+                                            mime="text/csv"
+                                        )
+                                else:
+                                    st.error(f"❌ Query execution failed: {exec_error}")
+                    else:
+                        st.error(f"❌ SQL Generation Error: {sql_error}")
+
+            except Exception as e:
+                st.error(f"❌ Analysis failed: {str(e)}")
+                st.info("💡 Try checking your table name, column name, and database permissions.")
+
+        elif analyze_and_execute:
+            st.warning("⚠️ Please fill in all required fields.")
+
+    # Custom SQL section
     st.markdown("---")
-    st.markdown("### 📊 Custom SQL with Performance Monitoring")
+    st.markdown("### 📊 Custom SQL Execution")
 
-    custom_sql_enh = st.text_area(
-        "Execute Custom SQL with Modin Performance Tracking:",
+    custom_sql = st.text_area(
+        f"Execute Custom SQL ({mode_text} Mode):",
         height=150,
         placeholder="""SELECT json_data:name::VARCHAR as name,
        json_data:age::NUMBER as age
 FROM your_table
 WHERE json_data:status::VARCHAR = 'active'
 LIMIT 10;""",
-        key="enh_custom_sql",
-        help="Write any SQL query - large results will use Modin for faster processing"
+        key="unified_custom_sql",
+        help=f"Write any SQL query - {'large results will use Modin for faster processing' if conn_manager.enhanced_mode else 'processed with standard pandas'}"
     )
 
     col5, col6 = st.columns(2)
 
     with col5:
-        if st.button("⚡ Execute with Performance Tracking", type="secondary"):
-            if custom_sql_enh:
-                with st.spinner("🔄 Executing with enhanced performance monitoring..."):
-                    result_df, error, perf_stats = conn_manager.execute_query_with_performance(custom_sql_enh)
+        execute_sql_btn = st.button(f"▶️ Execute SQL ({mode_text})", type="primary")
+
+        if execute_sql_btn and custom_sql.strip():
+            if conn_manager.enhanced_mode:
+                # Enhanced mode with performance tracking
+                with st.spinner("⚡ Executing with performance monitoring..."):
+                    result_df, error, perf_stats = conn_manager.execute_query_with_performance(custom_sql)
 
                     if result_df is not None:
-                        st.success("✅ Custom SQL executed successfully!")
+                        st.success("✅ Custom SQL executed with performance tracking!")
                         render_performance_metrics(perf_stats)
                         st.dataframe(result_df, use_container_width=True)
 
                         if not result_df.empty:
                             csv_data = result_df.to_csv(index=False).encode('utf-8')
                             st.download_button(
-                                "📥 Download Custom Results",
+                                "📥 Download Results",
                                 data=csv_data,
-                                file_name=f"custom_query_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                file_name=f"custom_enhanced_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                 mime="text/csv"
                             )
                     else:
                         st.error(f"❌ Execution failed: {error}")
             else:
-                st.warning("⚠️ Please enter a SQL query")
-
-    with col6:
-        if st.button("📊 Execute Standard Mode", type="secondary"):
-            if custom_sql_enh:
-                with st.spinner("🔄 Executing in standard mode..."):
-                    result_df, error = conn_manager.execute_query(custom_sql_enh)
+                # Standard mode
+                with st.spinner("🔄 Executing query in standard mode..."):
+                    result_df, error = conn_manager.execute_query(custom_sql)
 
                     if result_df is not None:
-                        st.success("✅ Query executed in standard mode!")
+                        st.success("✅ Custom SQL executed successfully!")
                         st.dataframe(result_df, use_container_width=True)
+
+                        if not result_df.empty:
+                            csv_data = result_df.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                "📥 Download Results",
+                                data=csv_data,
+                                file_name=f"custom_standard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv"
+                            )
                     else:
                         st.error(f"❌ Execution failed: {error}")
+
+        elif execute_sql_btn:
+            st.warning("⚠️ Please enter a SQL query")
+
+    with col6:
+        if st.button("📋 List Tables", type="secondary"):
+            with st.spinner("🔄 Retrieving tables..."):
+                tables_df, msg = conn_manager.list_tables()
+
+                if tables_df is not None:
+                    st.success(msg)
+                    if not tables_df.empty:
+                        st.dataframe(tables_df, use_container_width=True)
+                    else:
+                        st.info("ℹ️ No tables found in current schema")
+                else:
+                    st.error(msg)
+
+    # Connection management
+    st.markdown("---")
+    st.markdown("### 🔧 Connection Management")
+
+    col7, col8, col9 = st.columns(3)
+
+    with col7:
+        if st.button("🔌 Disconnect", type="secondary"):
+            conn_manager.disconnect()
+            # Clear all session state related to connections
+            keys_to_clear = [k for k in st.session_state.keys() if 'unified_connection' in k or 'discovered_schema' in k]
+            for key in keys_to_clear:
+                del st.session_state[key]
+            st.success("✅ Disconnected from Snowflake")
+            st.rerun()
+
+    with col8:
+        if st.button("🔍 Test Connection", type="secondary"):
+            connectivity_ok, status_msg = test_database_connectivity(conn_manager)
+            if connectivity_ok:
+                st.success("✅ Connection is healthy!")
             else:
-                st.warning("⚠️ Please enter a SQL query")
+                st.error(status_msg)
+
+    with col9:
+        # Mode switch button (for demonstration)
+        if st.button("🔄 Switch Mode", type="secondary", help="Disconnect and reconnect in different mode"):
+            conn_manager.disconnect()
+            # Clear session state
+            keys_to_clear = [k for k in st.session_state.keys() if 'unified_connection' in k]
+            for key in keys_to_clear:
+                del st.session_state[key]
+            st.info("✅ Disconnected. Please reconnect in your preferred mode.")
+            st.rerun()
+
+    # Connection details
+    if conn_manager.is_connected:
+        with st.expander("ℹ️ Connection Details & Status"):
+            col_info1, col_info2 = st.columns(2)
+            
+            with col_info1:
+                st.markdown("**Connection Information:**")
+                conn_info = {
+                    'Account': conn_manager.connection_params.get('account', 'N/A'),
+                    'Database': conn_manager.connection_params.get('database', 'N/A'),
+                    'Schema': conn_manager.connection_params.get('schema', 'N/A'),
+                    'Warehouse': conn_manager.connection_params.get('warehouse', 'N/A')
+                }
+                
+                for key, value in conn_info.items():
+                    st.text(f"{key}: {value}")
+            
+            with col_info2:
+                st.markdown("**Feature Status:**")
+                st.text(f"Mode: {'Enhanced' if conn_manager.enhanced_mode else 'Standard'}")
+                st.text(f"Session Management: {'✅ Active' if conn_manager.enhanced_mode else '❌ Basic'}")
+                st.text(f"Modin Acceleration: {'🚀 Available' if MODIN_AVAILABLE else '📊 Not Available'}")
+                st.text(f"Performance Tracking: {'✅ Active' if conn_manager.enhanced_mode else '❌ Not Available'}")
 
 
 # Main App
 def main():
     try:
-        st.markdown('<h1 class="main-header">❄️ Enhanced JSON-to-SQL Analyzer for Snowflake</h1>', unsafe_allow_html=True)
+        st.markdown('<h1 class="main-header">❄️ Unified JSON-to-SQL Analyzer for Snowflake</h1>', unsafe_allow_html=True)
 
         # Display performance information at the top
-        render_enhanced_performance_info()
+        render_performance_info()
 
-        # Top-level tabs for separated functionality
-        main_tab1, main_tab2, main_tab3 = st.tabs([
+        # SIMPLIFIED: Only two main tabs now
+        main_tab1, main_tab2 = st.tabs([
             "🐍 **Pure Python (Instant SQL Generation)**",
-            "🏔️ **Standard Snowflake Connection**",
-            "⚡ **Enhanced Snowflake (High Performance + Modin)**"
+            "🏔️ **Snowflake Database Connection**"
         ])
 
         with main_tab1:
@@ -464,104 +594,98 @@ def main():
                 st.info("👆 Provide JSON data via the sidebar to begin analysis and SQL generation.")
 
         with main_tab2:
-            st.markdown('<h2 class="section-header">🏔️ Standard Snowflake Connection</h2>', unsafe_allow_html=True)
+            st.markdown('<h2 class="section-header">🏔️ Snowflake Database Connection</h2>', unsafe_allow_html=True)
+            
+            # Mode selection section
+            st.markdown("### 🔧 Choose Connection Mode")
             st.markdown("""
             <div class="feature-box">
-            <p>Connect to your Snowflake database using the standard connector. Good for basic operations and smaller datasets.</p>
+            <p>Choose the connection mode that best fits your needs. You can switch between modes by disconnecting and reconnecting.</p>
             </div>
             """, unsafe_allow_html=True)
-
-            st.subheader("🔐 Step 1: Database Connection")
-            conn_manager = render_snowflake_connection_ui()
-
+            
+            col_mode1, col_mode2 = st.columns(2)
+            
+            with col_mode1:
+                st.markdown("""
+                **🏔️ Standard Mode:**
+                - ✅ Basic connectivity and operations
+                - 📊 Standard pandas processing  
+                - 🔧 Simple error handling
+                - 💾 Good for small to medium datasets
+                - 🚀 Quick setup and testing
+                """)
+                
+            with col_mode2:
+                st.markdown("""
+                **⚡ Enhanced Mode:**
+                - 🛡️ **Fixed session context management**
+                - 🚀 **Modin acceleration** (4x faster for large datasets)
+                - 📊 **Real-time performance tracking**
+                - 🏷️ Smart table name resolution
+                - 🔧 Advanced error recovery
+                """)
+            
+            # Mode selection
+            connection_mode = st.radio(
+                "Select Connection Mode:",
+                ["🏔️ Standard Mode", "⚡ Enhanced Mode"],
+                index=1,  # Default to enhanced mode
+                horizontal=True,
+                help="Enhanced mode includes all standard features plus advanced capabilities"
+            )
+            
+            enhanced_mode = "Enhanced" in connection_mode
+            
+            # Single unified connection UI
+            st.markdown("---")
+            st.subheader("🔐 Database Connection")
+            conn_manager = render_unified_connection_ui(enhanced_mode=enhanced_mode)
+            
             if conn_manager and conn_manager.is_connected:
-                st.markdown("---")
-                st.subheader("📊 Step 2: Database Operations")
-                render_snowflake_operations_ui(conn_manager, json_data=None)
-            else:
-                st.markdown("---")
-                st.info("👆 **Connect to your Snowflake database above to unlock database operations.**")
-
-        with main_tab3:
-            st.markdown('<h2 class="section-header">⚡ Enhanced Snowflake Connection (High Performance + Modin)</h2>', unsafe_allow_html=True)
-
-            # Enhanced features description
-            st.markdown("""
-            <div class="enhanced-box">
-                <h4 style="color: #2e7d32;">🚀 Enhanced Features:</h4>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
-                    <div>
-                        <h5 style="color: #1976d2;">🛠️ Connection Enhancements:</h5>
-                        <ul style="margin-bottom: 0;">
-                            <li><strong>✅ Fixes "database context" errors</strong></li>
-                            <li><strong>🎯 Automatic session management</strong></li>
-                            <li><strong>🛡️ Smart error recovery</strong></li>
-                            <li><strong>📊 Connection diagnostics</strong></li>
-                        </ul>
-                    </div>
-                    <div>
-                        <h5 style="color: #1976d2;">⚡ Performance Features:</h5>
-                        <ul style="margin-bottom: 0;">
-                            <li><strong>🚀 Modin pandas integration</strong> - Up to 4x faster</li>
-                            <li><strong>📈 Real-time performance metrics</strong></li>
-                            <li><strong>🔍 Database-driven JSON analysis</strong></li>
-                            <li><strong>💡 Smart field suggestions</strong></li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Enhanced connection UI
-            st.subheader("🔐 Enhanced Database Connection")
-            enhanced_conn_manager = render_enhanced_snowflake_connection_ui()
-
-            if enhanced_conn_manager and enhanced_conn_manager.is_connected:
                 # Test connectivity with comprehensive diagnostics
-                connectivity_ok, status_msg = test_database_connectivity(enhanced_conn_manager)
-
+                connectivity_ok, status_msg = test_database_connectivity(conn_manager)
+                
                 if connectivity_ok:
                     st.success(status_msg)
                     st.markdown("---")
-                    st.subheader("⚡ Enhanced Database Operations")
-                    render_enhanced_database_operations_ui(enhanced_conn_manager)
+                    st.subheader("📊 Database Operations")
+                    render_database_operations_ui(conn_manager)
                 else:
                     st.error(status_msg)
                     st.info("💡 Try disconnecting and reconnecting with correct database/schema settings.")
-
+                    
                     # Disconnect button for troubleshooting
                     if st.button("🔌 Disconnect and Retry", type="secondary"):
-                        enhanced_conn_manager.disconnect()
-                        if 'enhanced_snowflake_connection' in st.session_state:
-                            st.session_state.enhanced_snowflake_connection = None
+                        conn_manager.disconnect()
+                        keys_to_clear = [k for k in st.session_state.keys() if 'unified_connection' in k]
+                        for key in keys_to_clear:
+                            del st.session_state[key]
                         st.info("✅ Disconnected. Please reconnect with correct settings.")
                         st.rerun()
             else:
                 st.markdown("---")
-                st.info("👆 **Connect using the enhanced connector above to unlock high-performance database operations with Modin acceleration.**")
+                mode_text = "Enhanced" if enhanced_mode else "Standard"
+                st.info(f"👆 **Connect using {mode_text} mode above to unlock database operations.**")
 
-        # Footer with enhanced information
+        # Footer with unified information
         st.markdown("""
         <div class="footer">
-            <p><strong>🚀 Enhanced JSON-to-SQL Analyzer</strong> | Built with ❤️ using Streamlit</p>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2rem; margin-top: 1rem; text-align: center;">
+            <p><strong>🚀 Unified JSON-to-SQL Analyzer</strong> | Built with ❤️ using Streamlit</p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1rem; text-align: center;">
                 <div>
                     <h4 style="color: #1976d2;">🐍 Python Mode</h4>
-                    <p>Instant SQL generation<br/>No database required</p>
+                    <p>Instant SQL generation<br/>No database required<br/>Perfect for quick analysis</p>
                 </div>
                 <div>
-                    <h4 style="color: #ff7f0e;">🏔️ Standard Mode</h4>
-                    <p>Basic Snowflake connectivity<br/>Standard operations</p>
-                </div>
-                <div>
-                    <h4 style="color: #2e7d32;">⚡ Enhanced Mode</h4>
-                    <p>High-performance with Modin<br/>Advanced error handling</p>
+                    <h4 style="color: #2e7d32;">🏔️ Database Mode</h4>
+                    <p>Live Snowflake connectivity<br/>Standard or Enhanced modes<br/>Real database operations</p>
                 </div>
             </div>
             <hr style="margin: 2rem 0; border: 1px solid #e9ecef;">
             <p><small>
-                <strong>🎯 Smart Feature:</strong> Enhanced mode automatically analyzes your actual JSON data and fixes common connection issues!<br/>
-                <strong>⚡ Performance:</strong> Modin acceleration available for datasets > 1000 rows
+                <strong>🎯 Smart Feature:</strong> Unified connector automatically adapts to your chosen mode!<br/>
+                <strong>⚡ Performance:</strong> Enhanced mode provides Modin acceleration for datasets >1000 rows
             </small></p>
         </div>
         """, unsafe_allow_html=True)
