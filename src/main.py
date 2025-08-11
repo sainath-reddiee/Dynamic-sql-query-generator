@@ -12,7 +12,8 @@ from python_sql_generator import generate_sql_from_json_data
 # Import the NEW enhanced connector with Modin support
 from enhanced_snowflake_connector import (
     render_enhanced_snowflake_connection_ui,
-    render_enhanced_performance_info
+    render_enhanced_performance_info,
+    render_performance_metrics
 )
 
 # Import the universal analyzer with all necessary functions
@@ -79,8 +80,10 @@ st.markdown("""
 
 
 def render_enhanced_database_operations_ui(conn_manager, key_prefix=''):
-    """Render enhanced database operations UI with unique keys"""
-    
+    """
+    This is the FULL, CORRECTED function that includes all analysis, SQL generation,
+    and query execution logic. It is used by both Snowflake tabs.
+    """
     st.markdown("### 🧪 Smart JSON Analysis (FIXED Universal Logic)")
     
     col1, col2 = st.columns(2)
@@ -139,6 +142,7 @@ def render_enhanced_database_operations_ui(conn_manager, key_prefix=''):
             else:
                 st.info("No specific suggestions available for this schema.")
 
+    # --- BUTTONS FOR SCHEMA ANALYSIS AND SQL EXECUTION ---
     col3, col4 = st.columns(2)
     
     with col3:
@@ -160,17 +164,34 @@ def render_enhanced_database_operations_ui(conn_manager, key_prefix=''):
                 st.warning("⚠️ Please provide table name and JSON column.")
     
     with col4:
-        if st.button("🚀 Analyze & Generate SQL", type="primary", key=f"{key_prefix}_analyze_execute"):
+        if st.button("🚀 Analyze & Execute (Performance Mode)", type="primary", key=f"{key_prefix}_analyze_execute"):
             if all([table_name_enh, json_column_enh, field_conditions_enh]):
-                with st.spinner("⚡ Generating SQL with fixed universal logic..."):
-                    generated_sql, sql_error = generate_database_driven_sql_enhanced(
-                        conn_manager, table_name_enh, json_column_enh, field_conditions_enh
-                    )
-                    if generated_sql and not sql_error:
-                        st.success("✅ SQL Generated Successfully!")
-                        st.code(generated_sql, language="sql")
-                    else:
-                        st.error(f"❌ SQL Generation Error: {sql_error}")
+                try:
+                    with st.spinner("⚡ Generating SQL and executing query..."):
+                        # Step 1: Generate SQL
+                        generated_sql, sql_error = generate_database_driven_sql_enhanced(
+                            conn_manager, table_name_enh, json_column_enh, field_conditions_enh
+                        )
+                        
+                        if generated_sql and not sql_error:
+                            st.success("✅ SQL Generated Successfully!")
+                            st.code(generated_sql, language="sql")
+                            
+                            # Step 2: Execute with performance monitoring
+                            with st.spinner("⚡ Executing with performance tracking..."):
+                                result_df, exec_error, perf_stats = conn_manager.execute_query_with_performance(generated_sql)
+                                
+                                if result_df is not None:
+                                    st.success("✅ Query executed successfully!")
+                                    render_performance_metrics(perf_stats)
+                                    st.dataframe(result_df, use_container_width=True)
+                                else:
+                                    st.error(f"❌ Query execution failed: {exec_error}")
+                        else:
+                            st.error(f"❌ SQL Generation Error: {sql_error}")
+                            
+                except Exception as e:
+                    st.error(f"❌ An error occurred: {str(e)}")
             else:
                 st.warning("⚠️ Please fill in all required fields.")
 
@@ -178,7 +199,6 @@ def render_enhanced_database_operations_ui(conn_manager, key_prefix=''):
 def main():
     try:
         st.markdown('<h1 class="main-header">❄️ Enhanced JSON-to-SQL Analyzer for Snowflake</h1>', unsafe_allow_html=True)
-
         render_enhanced_performance_info()
 
         main_tab1, main_tab2, main_tab3 = st.tabs([
@@ -198,19 +218,14 @@ def main():
 
             json_data = None
             if input_method == "Upload JSON File":
-                uploaded_file = st.sidebar.file_uploader(
-                    "Choose a JSON file", type=['json'], help="Max 200MB"
-                )
+                uploaded_file = st.sidebar.file_uploader("Choose a JSON file", type=['json'])
                 if uploaded_file:
                     try:
                         json_data = json.load(uploaded_file)
-                        st.sidebar.success(f"✅ File '{uploaded_file.name}' loaded.")
                     except Exception as e:
                         st.sidebar.error(f"Error reading file: {e}")
             else:
-                json_text = st.sidebar.text_area(
-                    "Paste your JSON here:", height=250, placeholder='{"example": "data"}'
-                )
+                json_text = st.sidebar.text_area("Paste your JSON here:", height=250)
                 if json_text:
                     is_valid, _, json_data = validate_json_input(json_text)
                     if not is_valid:
@@ -223,16 +238,16 @@ def main():
 
                 with tab1:
                     st.markdown('<h3 class="section-header">⚡ SQL Generator</h3>', unsafe_allow_html=True)
-                    table_name = st.text_input("Table Name*", key="py_table", placeholder="your_schema.your_table")
-                    json_column = st.text_input("JSON Column Name*", key="py_json_col", placeholder="json_data")
-                    field_conditions = st.text_area("Field Conditions*", height=100, key="py_fields", placeholder="e.g., name, age[>:18]")
+                    table_name = st.text_input("Table Name*", key="py_table")
+                    json_column = st.text_input("JSON Column Name*", key="py_json_col")
+                    field_conditions = st.text_area("Field Conditions*", height=100, key="py_fields")
                     
                     if st.button("🚀 Generate SQL", type="primary"):
                         if all([table_name, json_column, field_conditions]):
                             sql = generate_sql_from_json_data(json_data, table_name, json_column, field_conditions)
                             st.code(sql, language="sql")
                         else:
-                            st.warning("Please fill in all required fields marked with *.")
+                            st.warning("Please fill in all required fields.")
 
                 with tab2:
                     st.markdown('<h3 class="section-header">📊 Complete JSON Paths</h3>', unsafe_allow_html=True)
@@ -244,7 +259,6 @@ def main():
                     st.code(prettify_json(json.dumps(json_data)), language='json')
             else:
                 st.info("👆 Provide JSON data via the sidebar to begin analysis.")
-
 
         with main_tab2:
             st.markdown('<h2 class="section-header">🏔️ Standard Snowflake Connection (Using Enhanced Logic)</h2>', unsafe_allow_html=True)
