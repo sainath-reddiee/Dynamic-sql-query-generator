@@ -122,7 +122,131 @@ def render_database_operations_ui(conn_manager: UnifiedSnowflakeConnector):
     </div>
     """, unsafe_allow_html=True)
 
-    # Smart JSON Analysis Section
+    # 🔥 MOVED UP: Custom SQL section (was at bottom, now right after connection status)
+    st.markdown("### 📊 Custom SQL Execution")
+    st.markdown("""
+    <div class="feature-box">
+        <p>Execute any custom SQL query directly. Perfect for:</p>
+        <ul>
+            <li><strong>📋 Exploring tables:</strong> <code>SHOW TABLES</code> or <code>SELECT * FROM INFORMATION_SCHEMA.TABLES</code></li>
+            <li><strong>🔍 Describing structure:</strong> <code>DESCRIBE TABLE your_table</code></li>
+            <li><strong>📊 Testing queries:</strong> <code>SELECT * FROM your_table LIMIT 5</code></li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+    custom_sql = st.text_area(
+        f"Execute Custom SQL ({mode_text} Mode):",
+        height=150,
+        placeholder="""-- Quick examples to try:
+SHOW TABLES;
+-- or --
+SELECT * FROM INFORMATION_SCHEMA.TABLES 
+WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA' 
+LIMIT 10;
+-- or --
+SELECT json_data:name::VARCHAR as name,
+       json_data:age::NUMBER as age
+FROM your_table
+WHERE json_data:status::VARCHAR = 'active'
+LIMIT 10;""",
+        key="unified_custom_sql",
+        help=f"Write any SQL query - {'large results will use Modin for faster processing' if conn_manager.enhanced_mode else 'processed with standard pandas'}"
+    )
+
+    col_sql1, col_sql2 = st.columns(2)
+
+    with col_sql1:
+        execute_sql_btn = st.button(f"▶️ Execute SQL ({mode_text})", type="primary")
+
+        if execute_sql_btn and custom_sql.strip():
+            if conn_manager.enhanced_mode:
+                # Enhanced mode with performance tracking
+                with st.spinner("⚡ Executing with performance monitoring..."):
+                    result_df, error, perf_stats = conn_manager.execute_query_with_performance(custom_sql)
+
+                    if result_df is not None:
+                        st.success("✅ Custom SQL executed with performance tracking!")
+                        render_performance_metrics(perf_stats)
+                        st.dataframe(result_df, use_container_width=True)
+
+                        if not result_df.empty:
+                            csv_data = result_df.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                "📥 Download Results",
+                                data=csv_data,
+                                file_name=f"custom_enhanced_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv"
+                            )
+                    else:
+                        st.error(f"❌ Execution failed: {error}")
+            else:
+                # Standard mode
+                with st.spinner("🔄 Executing query in standard mode..."):
+                    result_df, error = conn_manager.execute_query(custom_sql)
+
+                    if result_df is not None:
+                        st.success("✅ Custom SQL executed successfully!")
+                        st.dataframe(result_df, use_container_width=True)
+
+                        if not result_df.empty:
+                            csv_data = result_df.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                "📥 Download Results",
+                                data=csv_data,
+                                file_name=f"custom_standard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv"
+                            )
+                    else:
+                        st.error(f"❌ Execution failed: {error}")
+
+        elif execute_sql_btn:
+            st.warning("⚠️ Please enter a SQL query")
+
+    with col_sql2:
+        if st.button("📋 List Tables", type="secondary"):
+            with st.spinner("🔄 Retrieving tables..."):
+                tables_df, msg = conn_manager.list_tables()
+
+                if tables_df is not None:
+                    st.success(msg)
+                    if not tables_df.empty:
+                        st.dataframe(tables_df, use_container_width=True)
+                    else:
+                        st.info("ℹ️ No tables found in current schema")
+                else:
+                    st.error(msg)
+
+    # 🎯 Helpful SQL examples for quick access
+    st.markdown("#### 💡 Quick SQL Examples:")
+    col_ex1, col_ex2, col_ex3 = st.columns(3)
+    
+    with col_ex1:
+        if st.button("📋 Show Tables", help="List all tables"):
+            st.session_state.unified_custom_sql = "SHOW TABLES;"
+            st.rerun()
+    
+    with col_ex2:
+        if st.button("🏗️ Table Schema", help="Get table information"):
+            st.session_state.unified_custom_sql = """SELECT 
+    TABLE_CATALOG as DATABASE_NAME,
+    TABLE_SCHEMA as SCHEMA_NAME, 
+    TABLE_NAME,
+    TABLE_TYPE
+FROM INFORMATION_SCHEMA.TABLES 
+WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA'
+ORDER BY TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
+LIMIT 20;"""
+            st.rerun()
+    
+    with col_ex3:
+        if st.button("📊 Sample Data", help="Sample from a table"):
+            st.session_state.unified_custom_sql = """-- Replace 'your_table' with actual table name
+SELECT * FROM your_table LIMIT 10;"""
+            st.rerun()
+
+    # Smart JSON Analysis Section (moved down after Custom SQL)
+    st.markdown("---")
     st.markdown("### 🧪 Smart JSON Analysis")
     
     if conn_manager.enhanced_mode:
@@ -324,86 +448,7 @@ def render_database_operations_ui(conn_manager: UnifiedSnowflakeConnector):
         elif analyze_and_execute:
             st.warning("⚠️ Please fill in all required fields.")
 
-    # Custom SQL section
-    st.markdown("---")
-    st.markdown("### 📊 Custom SQL Execution")
-
-    custom_sql = st.text_area(
-        f"Execute Custom SQL ({mode_text} Mode):",
-        height=150,
-        placeholder="""SELECT json_data:name::VARCHAR as name,
-       json_data:age::NUMBER as age
-FROM your_table
-WHERE json_data:status::VARCHAR = 'active'
-LIMIT 10;""",
-        key="unified_custom_sql",
-        help=f"Write any SQL query - {'large results will use Modin for faster processing' if conn_manager.enhanced_mode else 'processed with standard pandas'}"
-    )
-
-    col5, col6 = st.columns(2)
-
-    with col5:
-        execute_sql_btn = st.button(f"▶️ Execute SQL ({mode_text})", type="primary")
-
-        if execute_sql_btn and custom_sql.strip():
-            if conn_manager.enhanced_mode:
-                # Enhanced mode with performance tracking
-                with st.spinner("⚡ Executing with performance monitoring..."):
-                    result_df, error, perf_stats = conn_manager.execute_query_with_performance(custom_sql)
-
-                    if result_df is not None:
-                        st.success("✅ Custom SQL executed with performance tracking!")
-                        render_performance_metrics(perf_stats)
-                        st.dataframe(result_df, use_container_width=True)
-
-                        if not result_df.empty:
-                            csv_data = result_df.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                "📥 Download Results",
-                                data=csv_data,
-                                file_name=f"custom_enhanced_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                mime="text/csv"
-                            )
-                    else:
-                        st.error(f"❌ Execution failed: {error}")
-            else:
-                # Standard mode
-                with st.spinner("🔄 Executing query in standard mode..."):
-                    result_df, error = conn_manager.execute_query(custom_sql)
-
-                    if result_df is not None:
-                        st.success("✅ Custom SQL executed successfully!")
-                        st.dataframe(result_df, use_container_width=True)
-
-                        if not result_df.empty:
-                            csv_data = result_df.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                "📥 Download Results",
-                                data=csv_data,
-                                file_name=f"custom_standard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                mime="text/csv"
-                            )
-                    else:
-                        st.error(f"❌ Execution failed: {error}")
-
-        elif execute_sql_btn:
-            st.warning("⚠️ Please enter a SQL query")
-
-    with col6:
-        if st.button("📋 List Tables", type="secondary"):
-            with st.spinner("🔄 Retrieving tables..."):
-                tables_df, msg = conn_manager.list_tables()
-
-                if tables_df is not None:
-                    st.success(msg)
-                    if not tables_df.empty:
-                        st.dataframe(tables_df, use_container_width=True)
-                    else:
-                        st.info("ℹ️ No tables found in current schema")
-                else:
-                    st.error(msg)
-
-    # Connection management
+    # Connection management (kept at bottom)
     st.markdown("---")
     st.markdown("### 🔧 Connection Management")
 
