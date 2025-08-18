@@ -62,7 +62,7 @@ def main():
         
         missing_files = []
         for file in required_files:
-            if not (src_dir / file).exists():
+            if not Path(file).exists():
                 missing_files.append(file)
         
         if missing_files:
