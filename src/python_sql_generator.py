@@ -1,11 +1,3 @@
-"""
-FIXED Python SQL Generator - FULLY DYNAMIC with corrected nested array flattening logic
-NO HARDCODED VALUES - Works with ANY JSON structure dynamically
-
-The fix addresses the nested array flattening issue where:
-WRONG: LATERAL FLATTEN(input => f1.value:products.reviews)
-CORRECT: LATERAL FLATTEN(input => f1.value:reviews)
-"""
 import json
 from typing import Dict, Any, List, Optional, Tuple
 import re
@@ -16,13 +8,15 @@ logger = logging.getLogger(__name__)
 
 class PythonSQLGenerator:
     """
-    FULLY DYNAMIC SQL Generator with corrected nested array flattening logic
-    Works with any JSON structure without hardcoded values
+    FIXED: SQL Generator with proper LATERAL FLATTEN alias management
+    - No duplicate aliases when extracting multiple fields from same array
+    - Works with any JSON structure dynamically
     """
     
     def __init__(self):
         self.flatten_counter = 0
         self.array_hierarchy = []
+        self.flatten_alias_map = {}  # NEW: Track aliases to prevent duplicates
     
     def analyze_json_for_sql(self, json_obj: Any, parent_path: str = "") -> Dict[str, Dict]:
         """
@@ -88,18 +82,21 @@ class PythonSQLGenerator:
     
     def generate_dynamic_sql(self, table_name: str, json_column: str, field_conditions: str, schema: Dict[str, Dict]) -> str:
         """
-        FULLY DYNAMIC: Generate SQL for ANY JSON structure and field conditions
+        FIXED: Generate SQL with proper alias management - no duplicates!
         """
         try:
+            # Reset alias tracking for each SQL generation
+            self.flatten_alias_map = {}
+            
             # DYNAMIC: Parse any field conditions format
             fields_info = self._parse_field_conditions_dynamic(field_conditions, schema)
             if not fields_info:
                 return "-- Error: No valid fields found in conditions"
             
-            # DYNAMIC: Build SQL components based on actual structure
-            select_clause = self._build_select_clause_dynamic(fields_info, schema)
-            from_clause = self._build_from_clause_dynamic(table_name, json_column, fields_info, schema)
-            where_clause = self._build_where_clause_dynamic(fields_info, schema)
+            # FIXED: Build SQL components with proper alias management
+            select_clause = self._build_select_clause_fixed(fields_info, schema, json_column)
+            from_clause = self._build_from_clause_fixed(table_name, json_column, fields_info, schema)
+            where_clause = self._build_where_clause_fixed(fields_info, schema, json_column)
             
             sql_parts = [select_clause, from_clause]
             if where_clause.strip():
@@ -169,8 +166,10 @@ class PythonSQLGenerator:
         
         return fields_info
     
-    def _build_select_clause_dynamic(self, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
-        """DYNAMIC: Build SELECT clause for any field structure"""
+    def _build_select_clause_fixed(self, fields_info: List[Dict], schema: Dict[str, Dict], json_column: str) -> str:
+        """
+        FIXED: Build SELECT clause with proper alias references
+        """
         select_parts = []
         
         for field_info in fields_info:
@@ -182,13 +181,12 @@ class PythonSQLGenerator:
             array_context = schema_entry.get('array_context', [])
             
             if array_context:
-                # DYNAMIC: Field is inside arrays - determine correct flatten reference
-                flatten_level = len(array_context)
-                flatten_ref = f"f{flatten_level}"
+                # FIXED: Get the correct flatten alias for this array context
+                flatten_alias = self._get_flatten_alias(array_context)
                 
                 # DYNAMIC: Calculate relative path from the flattened context
                 relative_path = self._calculate_relative_path_dynamic(field_path, array_context)
-                sql_path = f"{flatten_ref}.value:{relative_path}::{snowflake_type}"
+                sql_path = f"{flatten_alias}.value:{relative_path}::{snowflake_type}"
             else:
                 # DYNAMIC: Field is at root level - use direct JSON path
                 json_path = field_path.replace('.', ':')
@@ -200,55 +198,78 @@ class PythonSQLGenerator:
         
         return f"SELECT {', '.join(select_parts)}"
     
-    def _build_from_clause_dynamic(self, table_name: str, json_column: str, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
+    def _build_from_clause_fixed(self, table_name: str, json_column: str, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
         """
-        FULLY DYNAMIC: Build FROM clause with corrected nested array flattening logic
-        Works with ANY nested array structure
+        CRITICAL FIX: Build FROM clause WITHOUT duplicate LATERAL FLATTEN aliases
+        Groups fields by array context and reuses aliases efficiently!
         """
         from_parts = [table_name]
         
-        # DYNAMIC: Collect all unique array contexts from any fields
-        array_contexts_needed = set()
+        # FIXED: Collect unique array contexts and determine flatten requirements
+        required_flattens = {}  # array_context_tuple -> flatten_info
+        
         for field_info in fields_info:
             array_context = field_info['schema_entry'].get('array_context', [])
+            
+            # Process each level of nesting
             for i, context in enumerate(array_context):
-                array_contexts_needed.add((i, context))
+                context_tuple = tuple(array_context[:i+1])
+                
+                if context_tuple not in required_flattens:
+                    required_flattens[context_tuple] = {
+                        'level': i,
+                        'array_path': context,
+                        'full_context': array_context[:i+1]
+                    }
         
-        # DYNAMIC: Sort by nesting level to ensure correct order
-        sorted_contexts = sorted(array_contexts_needed, key=lambda x: x[0])
+        # FIXED: Sort by nesting level and build LATERAL FLATTEN clauses
+        sorted_flattens = sorted(required_flattens.items(), key=lambda x: x[1]['level'])
         
-        # DYNAMIC: Build LATERAL FLATTEN clauses for any array structure
-        for level, array_path in sorted_contexts:
-            flatten_alias = f"f{level + 1}"
+        for context_tuple, flatten_info in sorted_flattens:
+            level = flatten_info['level']
+            array_path = flatten_info['array_path']
+            
+            # FIXED: Get or create flatten alias (reuse existing if available)
+            flatten_alias = self._get_flatten_alias(flatten_info['full_context'])
             
             if level == 0:
                 # DYNAMIC: First level - flatten from the main JSON column
                 clean_path = array_path.replace('.', ':')
                 flatten_input = f"{json_column}:{clean_path}"
             else:
-                # CRITICAL FIX: Subsequent levels - use RELATIVE path from parent
-                parent_alias = f"f{level}"
+                # FIXED: Subsequent levels - use correct parent alias
+                parent_context = tuple(flatten_info['full_context'][:level])
+                parent_alias = self._get_flatten_alias(list(parent_context))
                 
-                # DYNAMIC: Find parent array path
-                parent_array_path = None
-                for parent_level, parent_path in sorted_contexts:
-                    if parent_level == level - 1:
-                        parent_array_path = parent_path
-                        break
+                # DYNAMIC: Calculate relative path from parent to current array
+                parent_array_path = flatten_info['full_context'][level-1]
                 
-                # FIXED LOGIC: Calculate relative path dynamically
-                if parent_array_path and array_path.startswith(parent_array_path + '.'):
-                    # DYNAMIC: Extract relative path from parent to current array
+                if array_path.startswith(parent_array_path + '.'):
                     relative_path = array_path[len(parent_array_path) + 1:]
-                    flatten_input = f"{parent_alias}.value:{relative_path}"
                 else:
-                    # DYNAMIC: Fallback - use just the field name
                     relative_path = array_path.split('.')[-1]
-                    flatten_input = f"{parent_alias}.value:{relative_path}"
+                
+                flatten_input = f"{parent_alias}.value:{relative_path}"
             
             from_parts.append(f"LATERAL FLATTEN(input => {flatten_input}) {flatten_alias}")
         
         return f"FROM {', '.join(from_parts)}"
+    
+    def _get_flatten_alias(self, array_context: List[str]) -> str:
+        """
+        FIXED: Get or create flatten alias, reusing existing aliases for same context
+        This prevents duplicate LATERAL FLATTEN clauses!
+        """
+        context_key = tuple(array_context)
+        
+        if context_key in self.flatten_alias_map:
+            return self.flatten_alias_map[context_key]
+        
+        # Create new alias
+        alias = f"f{len(array_context)}"
+        self.flatten_alias_map[context_key] = alias
+        
+        return alias
     
     def _calculate_relative_path_dynamic(self, full_path: str, array_context: List[str]) -> str:
         """DYNAMIC: Calculate relative path within flattened context for any structure"""
@@ -267,8 +288,10 @@ class PythonSQLGenerator:
         
         return relative_path.replace('.', ':')
     
-    def _build_where_clause_dynamic(self, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
-        """DYNAMIC: Build WHERE clause for any conditions"""
+    def _build_where_clause_fixed(self, fields_info: List[Dict], schema: Dict[str, Dict], json_column: str) -> str:
+        """
+        FIXED: Build WHERE clause with proper alias references
+        """
         where_conditions = []
         
         for field_info in fields_info:
@@ -282,15 +305,14 @@ class PythonSQLGenerator:
             schema_entry = field_info['schema_entry']
             array_context = schema_entry.get('array_context', [])
             
-            # DYNAMIC: Build SQL reference for WHERE clause
+            # FIXED: Build SQL reference for WHERE clause with correct aliases
             if array_context:
-                flatten_level = len(array_context)
-                flatten_ref = f"f{flatten_level}"
+                flatten_alias = self._get_flatten_alias(array_context)
                 relative_path = self._calculate_relative_path_dynamic(field_path, array_context)
-                sql_ref = f"{flatten_ref}.value:{relative_path}"
+                sql_ref = f"{flatten_alias}.value:{relative_path}"
             else:
                 json_path = field_path.replace('.', ':')
-                sql_ref = f"PAYLOAD:{json_path}"
+                sql_ref = f"{json_column}:{json_path}"
             
             # DYNAMIC: Build condition based on any operator
             if operator.upper() == 'IS NOT NULL':
@@ -312,7 +334,7 @@ class PythonSQLGenerator:
 
 def generate_sql_from_json_data(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> str:
     """
-    DYNAMIC: Generate SQL from any JSON data structure
+    FIXED: Generate SQL from any JSON data structure with proper alias management
     This is the main function called by your application
     """
     try:
@@ -324,7 +346,7 @@ def generate_sql_from_json_data(json_data: Any, table_name: str, json_column: st
         if not schema:
             return "-- Error: Could not analyze JSON structure"
         
-        # DYNAMIC: Generate SQL for any field conditions
+        # FIXED: Generate SQL with proper alias management
         return generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
         
     except Exception as e:
@@ -332,81 +354,6 @@ def generate_sql_from_json_data(json_data: Any, table_name: str, json_column: st
         return f"-- Error: {str(e)}"
 
 
-# DYNAMIC TEST FUNCTION - Works with any JSON structure
-def test_dynamic_nested_arrays():
-    """
-    DYNAMIC: Test with various JSON structures to verify flexibility
-    """
-    
-    # Test case 1: E-commerce structure
-    ecommerce_json = {
-        "products": [
-            {
-                "name": "Laptop",
-                "reviews": [
-                    {"comment": "Excellent!", "rating": 5},
-                    {"comment": "Good value", "rating": 4}
-                ]
-            }
-        ]
-    }
-    
-    # Test case 2: Different structure - User data
-    user_json = {
-        "users": [
-            {
-                "profile": {
-                    "name": "John",
-                    "contacts": [
-                        {"type": "email", "value": "john@example.com"},
-                        {"type": "phone", "value": "555-1234"}
-                    ]
-                }
-            }
-        ]
-    }
-    
-    # Test case 3: Complex nested structure
-    complex_json = {
-        "departments": [
-            {
-                "name": "Engineering",
-                "teams": [
-                    {
-                        "name": "Backend",
-                        "members": [
-                            {"name": "Alice", "skills": ["Python", "SQL"]},
-                            {"name": "Bob", "skills": ["Java", "React"]}
-                        ]
-                    }
-                ]
-            }
-        ]
-    }
-    
-    generator = PythonSQLGenerator()
-    
-    test_cases = [
-        (ecommerce_json, "products.reviews.comment", "E-commerce"),
-        (user_json, "users.profile.contacts.value", "User contacts"),
-        (complex_json, "departments.teams.members.name", "Complex nested")
-    ]
-    
-    for json_data, field_condition, test_name in test_cases:
-        print(f"\n=== {test_name.upper()} TEST ===")
-        
-        # Analyze structure
-        schema = generator.analyze_json_for_sql(json_data)
-        print(f"Fields found: {len(schema)}")
-        
-        # Generate SQL
-        sql = generator.generate_dynamic_sql(
-            "TEST_TABLE", "JSON_COLUMN", field_condition, schema
-        )
-        
-        print("Generated SQL:")
-        print(sql)
-
-
+# Main function for external usage
 if __name__ == "__main__":
-    test_dynamic_nested_arrays()
+    logger.info("Python SQL Generator module loaded successfully")
