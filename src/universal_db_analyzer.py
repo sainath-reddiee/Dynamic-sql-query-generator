@@ -1,18 +1,74 @@
-"""
-FIXED UNIVERSAL Database-driven JSON analysis 
-Merges the FIXED enhanced features into the universal analyzer
-This will work for BOTH:
-1. Standard Snowflake Connection (Tab 2)  
-2. Enhanced Snowflake Connection (Tab 3)
-
-Replace your existing universal_db_analyzer.py with this FIXED version
-"""
 import streamlit as st
 import json
 from typing import Dict, Any, List, Tuple, Optional
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def execute_custom_sql_query(conn_manager, custom_query: str) -> Tuple[Optional[Any], Optional[str]]:
+    """
+    MOVED TO TOP: Execute custom SQL queries (helpful for listing tables, etc.)
+    """
+    if not conn_manager.is_connected:
+        return None, "❌ Not connected to database"
+
+    try:
+        # Handle enhanced connectors with session context
+        if hasattr(conn_manager, 'ensure_session_context'):
+            if not conn_manager.ensure_session_context():
+                return None, "❌ Failed to establish database session context"
+
+        st.info(f"🔍 Executing query: `{custom_query[:100]}{'...' if len(custom_query) > 100 else ''}`")
+
+        result_df, error_msg = conn_manager.execute_query(custom_query)
+
+        if result_df is None:
+            return None, f"❌ Query failed: {error_msg}"
+
+        if result_df.empty:
+            return None, "❌ Query returned no results"
+
+        return result_df, None
+
+    except Exception as e:
+        logger.error(f"Custom SQL execution failed: {e}")
+        return None, f"❌ Custom SQL execution failed: {str(e)}"
+
+
+def list_available_tables(conn_manager) -> Tuple[Optional[List[str]], Optional[str]]:
+    """
+    Helper function to list available tables using custom SQL
+    """
+    list_tables_query = """
+    SELECT 
+        TABLE_CATALOG as DATABASE_NAME,
+        TABLE_SCHEMA as SCHEMA_NAME, 
+        TABLE_NAME,
+        TABLE_TYPE
+    FROM INFORMATION_SCHEMA.TABLES 
+    WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA'
+    ORDER BY TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
+    LIMIT 50
+    """
+    
+    result_df, error = execute_custom_sql_query(conn_manager, list_tables_query)
+    
+    if result_df is None:
+        return None, error
+    
+    # Format table names with full qualification
+    table_list = []
+    for _, row in result_df.iterrows():
+        db = row.get('DATABASE_NAME', '')
+        schema = row.get('SCHEMA_NAME', '')
+        table = row.get('TABLE_NAME', '')
+        table_type = row.get('TABLE_TYPE', '')
+        
+        full_name = f"{db}.{schema}.{table}"
+        table_list.append(f"{full_name} ({table_type})")
+    
+    return table_list, None
 
 
 def sample_json_from_database(conn_manager, table_name: str, json_column: str, 
@@ -132,8 +188,7 @@ def resolve_table_name_universal(conn_manager, table_name: str) -> str:
 def analyze_database_json_schema_universal(conn_manager, table_name: str, json_column: str, 
                                          sample_size: int = 10) -> Tuple[Optional[Dict], Optional[str], Dict]:
     """
-    FIXED UNIVERSAL JSON schema analysis that works with both connector types
-    Uses the FIXED SQL generator logic for consistency - NO MORE SAMPLE PREFIXES!
+    FIXED UNIVERSAL JSON schema analysis - uses the FIXED SQL generator
     """
     metadata = {
         'table_name': table_name,
@@ -166,9 +221,9 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
         progress_bar.progress(40)
 
         # Step 2: Analyze JSON structure using the FIXED SQL generator logic
-        status_text.text("🔬 Analyzing JSON structure with FIXED logic (no sample prefixes)...")
+        status_text.text("🔬 Analyzing JSON structure with FIXED logic...")
 
-        # CRITICAL FIX: Import the corrected SQL generator
+        # CRITICAL FIX: Import the FIXED SQL generator
         from python_sql_generator import PythonSQLGenerator
 
         # Create analyzer instance
@@ -189,7 +244,7 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
                 progress_percentage = 40 + (i / len(json_samples)) * 40
                 progress_bar.progress(int(progress_percentage))
 
-                # CRITICAL FIX: Analyze additional samples WITHOUT adding sample prefix
+                # FIXED: Analyze additional samples WITHOUT adding sample prefix
                 sample_schema = generator.analyze_json_for_sql(json_sample)  # NO parent_path!
 
                 # Track unique structures
@@ -279,8 +334,7 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
 def generate_database_driven_sql(conn_manager, table_name: str, json_column: str, 
                                field_conditions: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    FIXED UNIVERSAL database-driven SQL generation that works with both connector types
-    Uses the corrected SQL logic with proper array flattening - NO SAMPLE PREFIXES!
+    FIXED UNIVERSAL database-driven SQL generation with proper alias management
     """
     try:
         # Step 1: Analyze JSON schema from database
@@ -311,9 +365,9 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
         st.info(f"📋 **Analyzed Table:** `{metadata['resolved_table_name']}`")
 
         # Step 2: Generate SQL using the FIXED logic
-        st.info("🔨 **Step 2:** Generating SQL with FIXED array flattening logic (no sample prefixes)...")
+        st.info("🔨 **Step 2:** Generating SQL with FIXED array flattening logic...")
 
-        # CRITICAL FIX: Use the corrected SQL generator
+        # CRITICAL FIX: Use the FIXED SQL generator
         from python_sql_generator import PythonSQLGenerator
         
         generator = PythonSQLGenerator()
@@ -329,15 +383,32 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
         if generated_sql.strip().startswith("-- Error"):
             return None, f"SQL generation failed: {generated_sql}"
 
-        # VERIFICATION: Check generated SQL for sample prefixes
+        # VERIFICATION: Check generated SQL for sample prefixes and duplicate aliases
+        issues_found = []
+        
         if "sample_0" in generated_sql or "sample_1" in generated_sql:
-            st.error("🚨 **BUG ALERT:** Generated SQL contains 'sample_' prefixes - there's still an issue!")
-            st.code(generated_sql, language="sql")
-            return None, "Generated SQL contains invalid 'sample_' prefixes"
-        else:
-            st.success("🎯 **VERIFIED:** Generated SQL is clean (no 'sample_' prefixes)")
+            issues_found.append("Contains 'sample_' prefixes")
+            
+        # Check for duplicate LATERAL FLATTEN aliases
+        lateral_flattens = [line for line in generated_sql.split('\n') if 'LATERAL FLATTEN' in line]
+        flatten_aliases = []
+        for line in lateral_flattens:
+            if ') f' in line:
+                alias = line.split(') f')[1].split()[0]
+                flatten_aliases.append(alias)
+        
+        duplicate_aliases = [alias for alias in set(flatten_aliases) if flatten_aliases.count(alias) > 1]
+        if duplicate_aliases:
+            issues_found.append(f"Duplicate aliases: {duplicate_aliases}")
 
-        st.success("✅ **Step 2 Complete:** Clean SQL Generated with FIXED Array Flattening Logic!")
+        if issues_found:
+            st.error(f"🚨 **SQL ISSUES DETECTED:** {'; '.join(issues_found)}")
+            st.code(generated_sql, language="sql")
+            return None, f"Generated SQL has issues: {'; '.join(issues_found)}"
+        else:
+            st.success("🎯 **VERIFIED:** Generated SQL is clean (no prefixes, no duplicate aliases)")
+
+        st.success("✅ **Step 2 Complete:** Clean SQL Generated with FIXED Logic!")
         
         return generated_sql, None
 
@@ -346,21 +417,38 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
         return None, f"❌ Database-driven analysis failed: {str(e)}"
 
 
-# Enhanced version - now just uses the fixed universal version
-def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_column: str, 
-                                        field_conditions: str) -> Tuple[Optional[str], Optional[str]]:
+def generate_sql_from_json_python_mode_fixed(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> str:
     """
-    Enhanced version that's now just an alias to the universal FIXED version
+    CRITICAL FIX: Python mode SQL generation with all variables properly defined
+    Fixes the 'json_column' not defined error and ensures clean SQL generation
     """
-    return generate_database_driven_sql(conn_manager, table_name, json_column, field_conditions)
-
-
-def analyze_database_json_schema_enhanced(conn_manager, table_name: str, json_column: str, 
-                                        sample_size: int = 10) -> Tuple[Optional[Dict], Optional[str], Dict]:
-    """
-    Enhanced version that's now just an alias to the universal FIXED version
-    """
-    return analyze_database_json_schema_universal(conn_manager, table_name, json_column, sample_size)
+    try:
+        # FIXED: Import the corrected SQL generator
+        from python_sql_generator import PythonSQLGenerator
+        
+        generator = PythonSQLGenerator()
+        
+        # FIXED: Analyze JSON structure without sample prefixes
+        schema = generator.analyze_json_for_sql(json_data)
+        
+        if not schema:
+            return "-- Error: Could not analyze JSON structure"
+        
+        # FIXED: Generate SQL with all parameters properly passed
+        generated_sql = generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
+        
+        # VERIFICATION: Check for issues
+        if "sample_" in generated_sql:
+            return f"-- Error: Generated SQL contains sample prefixes:\n{generated_sql}"
+        
+        if generated_sql.strip().startswith("-- Error"):
+            return generated_sql
+            
+        return generated_sql
+        
+    except Exception as e:
+        logger.error(f"Python mode SQL generation failed: {e}")
+        return f"-- Error in Python mode: {str(e)}"
 
 
 def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
@@ -554,7 +642,7 @@ def test_database_connectivity(conn_manager) -> Tuple[bool, str]:
 - **User:** {user}
 - **Role:** {role}
 - **Status:** Connected and Ready
-- **SQL Generator:** FIXED Universal (No Sample Prefixes) ✅"""
+- **SQL Generator:** FIXED Universal (No Sample Prefixes, No Duplicate Aliases) ✅"""
 
             return True, status_msg
         else:
@@ -562,3 +650,16 @@ def test_database_connectivity(conn_manager) -> Tuple[bool, str]:
 
     except Exception as e:
         return False, f"❌ Connection test error: {str(e)}"
+
+
+# Enhanced version aliases for backward compatibility
+def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_column: str, 
+                                        field_conditions: str) -> Tuple[Optional[str], Optional[str]]:
+    """Enhanced version that's now just an alias to the universal FIXED version"""
+    return generate_database_driven_sql(conn_manager, table_name, json_column, field_conditions)
+
+
+def analyze_database_json_schema_enhanced(conn_manager, table_name: str, json_column: str, 
+                                        sample_size: int = 10) -> Tuple[Optional[Dict], Optional[str], Dict]:
+    """Enhanced version that's now just an alias to the universal FIXED version"""
+    return analyze_database_json_schema_universal(conn_manager, table_name, json_column, sample_size)
