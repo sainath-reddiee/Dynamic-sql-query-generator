@@ -642,6 +642,7 @@ def test_database_connectivity(conn_manager) -> Tuple[bool, str]:
 - **User:** {user}
 - **Role:** {role}
 - **Status:** Connected and Ready
+"""
             return True, status_msg
         else:
             return False, f"❌ Connection test failed: {error}"
