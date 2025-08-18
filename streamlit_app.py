@@ -14,8 +14,8 @@ def setup_paths():
         if path not in sys.path:
             sys.path.insert(0, path)
     
-    # Change to src directory for relative imports
-    os.chdir(str(src_dir))
+    # Change to src directory for relative imports (REMOVED)
+    # os.chdir(str(src_dir))
     
     return src_dir
 
