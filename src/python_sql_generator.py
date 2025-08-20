@@ -8,21 +8,24 @@ logger = logging.getLogger(__name__)
 
 class PythonSQLGenerator:
     """
-    FIXED: SQL Generator with proper LATERAL FLATTEN alias management
-    - No duplicate aliases when extracting multiple fields from same array
-    - Works with any JSON structure dynamically
+    ENHANCED: SQL Generator with intelligent path disambiguation
+    - Handles duplicate field names at different hierarchy levels
+    - Provides smart field resolution and alias suggestions
+    - Generates clean, unambiguous SQL with proper LATERAL FLATTEN management
     """
     
     def __init__(self):
         self.flatten_counter = 0
         self.array_hierarchy = []
-        self.flatten_alias_map = {}  # NEW: Track aliases to prevent duplicates
+        self.flatten_alias_map = {}
+        self.field_disambiguation_map = {}  # Track field name conflicts
     
     def analyze_json_for_sql(self, json_obj: Any, parent_path: str = "") -> Dict[str, Dict]:
         """
-        DYNAMIC: Analyze ANY JSON structure for SQL generation
+        ENHANCED: Analyze JSON structure with path disambiguation tracking
         """
         schema = {}
+        field_name_tracker = {}  # Track where each field name appears
         
         def traverse_json(obj: Any, path: str = "", depth: int = 0, in_array_context: List[str] = []):
             if isinstance(obj, dict):
@@ -30,7 +33,17 @@ class PythonSQLGenerator:
                     new_path = f"{path}.{key}" if path else key
                     current_type = type(value).__name__
                     
-                    # DYNAMIC: Determine queryability based on actual structure
+                    # Track field name occurrences for disambiguation
+                    if key not in field_name_tracker:
+                        field_name_tracker[key] = []
+                    field_name_tracker[key].append({
+                        'full_path': new_path,
+                        'depth': depth,
+                        'in_array': len(in_array_context) > 0,
+                        'array_context': in_array_context.copy(),
+                        'parent_path': path
+                    })
+                    
                     is_queryable = not isinstance(value, (dict, list)) or (
                         isinstance(value, list) and len(value) > 0 and not isinstance(value[0], (dict, list))
                     )
@@ -44,31 +57,94 @@ class PythonSQLGenerator:
                         "array_context": in_array_context.copy(),
                         "depth": depth,
                         "full_path": new_path,
-                        "sample_value": str(value)[:100] if len(str(value)) <= 100 else str(value)[:100] + "..."
+                        "field_name": key,
+                        "sample_value": str(value)[:100] if len(str(value)) <= 100 else str(value)[:100] + "...",
+                        "hierarchy_level": self._get_hierarchy_description(new_path, in_array_context)
                     }
                     
                     schema[new_path] = schema_entry
                     
-                    # DYNAMIC: Recursively analyze any nested structures
                     if isinstance(value, dict):
                         traverse_json(value, new_path, depth + 1, in_array_context)
                     elif isinstance(value, list) and value:
-                        # DYNAMIC: Analyze array elements regardless of content
                         if isinstance(value[0], (dict, list)):
                             new_array_context = in_array_context + [new_path]
                             traverse_json(value[0], new_path, depth + 1, new_array_context)
                         
             elif isinstance(obj, list) and obj:
-                # DYNAMIC: Handle array elements of any type
                 if isinstance(obj[0], (dict, list)):
                     new_array_context = in_array_context + [path] if path else in_array_context
                     traverse_json(obj[0], path, depth, new_array_context)
         
         traverse_json(json_obj, parent_path)
+        
+        # Generate disambiguation information
+        self.field_disambiguation_map = self._create_disambiguation_map(field_name_tracker, schema)
+        
         return schema
     
+    def _get_hierarchy_description(self, full_path: str, array_context: List[str]) -> str:
+        """Generate human-readable hierarchy description"""
+        if not array_context:
+            return "Root Level"
+        elif len(array_context) == 1:
+            array_name = array_context[0].split('.')[-1]
+            return f"In {array_name} Array"
+        else:
+            nested_arrays = [ctx.split('.')[-1] for ctx in array_context]
+            return f"In Nested Arrays: {' → '.join(nested_arrays)}"
+    
+    def _create_disambiguation_map(self, field_name_tracker: Dict, schema: Dict) -> Dict:
+        """Create disambiguation map for conflicting field names"""
+        disambiguation_map = {}
+        
+        for field_name, occurrences in field_name_tracker.items():
+            if len(occurrences) > 1:
+                # Field name appears multiple times - needs disambiguation
+                disambiguated_options = []
+                
+                for i, occurrence in enumerate(occurrences):
+                    full_path = occurrence['full_path']
+                    depth = occurrence['depth']
+                    hierarchy = schema[full_path]['hierarchy_level']
+                    
+                    # Create descriptive alias
+                    path_parts = full_path.split('.')
+                    if len(path_parts) > 1:
+                        context = path_parts[-2]  # Parent context
+                        suggested_alias = f"{context}_{field_name}"
+                    else:
+                        suggested_alias = f"root_{field_name}"
+                    
+                    # Make alias unique if still conflicts
+                    base_alias = suggested_alias
+                    counter = 1
+                    while any(opt['suggested_alias'] == suggested_alias for opt in disambiguated_options):
+                        suggested_alias = f"{base_alias}_{counter}"
+                        counter += 1
+                    
+                    disambiguated_options.append({
+                        'full_path': full_path,
+                        'suggested_alias': suggested_alias,
+                        'hierarchy_description': hierarchy,
+                        'depth': depth,
+                        'queryable': schema[full_path]['is_queryable'],
+                        'sample_value': schema[full_path]['sample_value']
+                    })
+                
+                disambiguation_map[field_name] = {
+                    'conflict_count': len(occurrences),
+                    'options': disambiguated_options
+                }
+        
+        return disambiguation_map
+    
+    def get_field_disambiguation_info(self) -> Dict:
+        """Get disambiguation information for UI display"""
+        return self.field_disambiguation_map
+    
     def _get_snowflake_type(self, python_type: str) -> str:
-        """DYNAMIC: Map any Python type to appropriate Snowflake type"""
+        """Map Python type to Snowflake type"""
         type_mapping = {
             'str': 'VARCHAR',
             'int': 'NUMBER',
@@ -82,21 +158,22 @@ class PythonSQLGenerator:
     
     def generate_dynamic_sql(self, table_name: str, json_column: str, field_conditions: str, schema: Dict[str, Dict]) -> str:
         """
-        FIXED: Generate SQL with proper alias management - no duplicates!
+        ENHANCED: Generate SQL with intelligent disambiguation
         """
         try:
             # Reset alias tracking for each SQL generation
             self.flatten_alias_map = {}
             
-            # DYNAMIC: Parse any field conditions format
-            fields_info = self._parse_field_conditions_dynamic(field_conditions, schema)
+            # Parse field conditions with disambiguation
+            fields_info, warnings = self._parse_field_conditions_with_disambiguation(field_conditions, schema)
+            
             if not fields_info:
                 return "-- Error: No valid fields found in conditions"
             
-            # FIXED: Build SQL components with proper alias management
-            select_clause = self._build_select_clause_fixed(fields_info, schema, json_column)
+            # Build SQL components with proper alias management
+            select_clause = self._build_select_clause_enhanced(fields_info, schema, json_column)
             from_clause = self._build_from_clause_fixed(table_name, json_column, fields_info, schema)
-            where_clause = self._build_where_clause_fixed(fields_info, schema, json_column)
+            where_clause = self._build_where_clause_enhanced(fields_info, schema, json_column)
             
             sql_parts = [select_clause, from_clause]
             if where_clause.strip():
@@ -105,21 +182,54 @@ class PythonSQLGenerator:
             return '\n'.join(sql_parts) + ';'
             
         except Exception as e:
-            logger.error(f"Dynamic SQL generation failed: {e}")
+            logger.error(f"Enhanced SQL generation failed: {e}")
             return f"-- Error generating SQL: {str(e)}"
     
-    def _parse_field_conditions_dynamic(self, field_conditions: str, schema: Dict[str, Dict]) -> List[Dict]:
-        """DYNAMIC: Parse any field conditions format"""
+    def generate_sql_with_warnings(self, table_name: str, json_column: str, field_conditions: str, schema: Dict[str, Dict]) -> Tuple[str, List[str]]:
+        """
+        ENHANCED: Generate SQL with disambiguation warnings
+        Returns: (sql, warnings)
+        """
+        try:
+            # Reset alias tracking
+            self.flatten_alias_map = {}
+            
+            # Parse field conditions with disambiguation
+            fields_info, warnings = self._parse_field_conditions_with_disambiguation(field_conditions, schema)
+            
+            if not fields_info:
+                return "-- Error: No valid fields found in conditions", ["❌ No valid fields found"]
+            
+            # Build SQL components
+            select_clause = self._build_select_clause_enhanced(fields_info, schema, json_column)
+            from_clause = self._build_from_clause_fixed(table_name, json_column, fields_info, schema)
+            where_clause = self._build_where_clause_enhanced(fields_info, schema, json_column)
+            
+            sql_parts = [select_clause, from_clause]
+            if where_clause.strip():
+                sql_parts.append(where_clause)
+            
+            return '\n'.join(sql_parts) + ';', warnings
+            
+        except Exception as e:
+            logger.error(f"Enhanced SQL generation failed: {e}")
+            return f"-- Error generating SQL: {str(e)}", [f"❌ Generation error: {str(e)}"]
+    
+    def _parse_field_conditions_with_disambiguation(self, field_conditions: str, schema: Dict[str, Dict]) -> Tuple[List[Dict], List[str]]:
+        """
+        ENHANCED: Parse field conditions with intelligent disambiguation
+        Returns: (parsed_fields, warnings)
+        """
         fields_info = []
+        warnings = []
         
-        # DYNAMIC: Split and process any condition format
         conditions = [c.strip() for c in field_conditions.split(',')]
         
         for condition in conditions:
             if not condition:
                 continue
                 
-            # DYNAMIC: Parse field[operator:value] or just field
+            # Parse field[operator:value] or just field
             if '[' in condition and ']' in condition:
                 field_path = condition.split('[')[0].strip()
                 condition_part = condition[condition.index('[') + 1:condition.rindex(']')]
@@ -136,161 +246,124 @@ class PythonSQLGenerator:
                 operator = None
                 value = None
             
-            # DYNAMIC: Find matching schema entry by any path pattern
-            schema_entry = None
-            matched_path = None
+            # Intelligent field resolution with disambiguation
+            resolved_field, resolution_warning = self._resolve_field_with_disambiguation(field_path, schema)
             
-            # Try exact match first
-            if field_path in schema:
-                schema_entry = schema[field_path]
-                matched_path = field_path
-            else:
-                # Try partial matches - check if field_path matches end of any schema path
-                for schema_path, details in schema.items():
-                    if (schema_path == field_path or 
-                        schema_path.endswith('.' + field_path) or
-                        field_path in schema_path):
-                        schema_entry = details
-                        matched_path = schema_path
-                        break
-            
-            # Only include queryable fields
-            if schema_entry and schema_entry.get('is_queryable', False):
+            if resolved_field:
                 fields_info.append({
-                    'field_path': matched_path,
+                    'field_path': resolved_field['full_path'],
                     'original_field': field_path,
+                    'suggested_alias': resolved_field.get('suggested_alias', field_path.split('.')[-1]),
                     'operator': operator,
                     'value': value,
-                    'schema_entry': schema_entry
+                    'schema_entry': resolved_field['schema_entry'],
+                    'disambiguation_used': resolved_field.get('disambiguation_used', False)
                 })
+                
+                if resolution_warning:
+                    warnings.append(resolution_warning)
+            else:
+                warnings.append(f"⚠️ Field '{field_path}' not found or not queryable")
         
-        return fields_info
+        return fields_info, warnings
     
-    def _build_select_clause_fixed(self, fields_info: List[Dict], schema: Dict[str, Dict], json_column: str) -> str:
+    def _resolve_field_with_disambiguation(self, field_input: str, schema: Dict[str, Dict]) -> Tuple[Optional[Dict], Optional[str]]:
         """
-        FIXED: Build SELECT clause with proper alias references
+        ENHANCED: Resolve field with smart disambiguation
+        """
+        # Try exact path match first
+        if field_input in schema and schema[field_input]['is_queryable']:
+            return {
+                'full_path': field_input,
+                'schema_entry': schema[field_input],
+                'disambiguation_used': False
+            }, None
+        
+        # Check if this is a simple field name that has conflicts
+        simple_field_name = field_input.split('.')[-1]
+        
+        if simple_field_name in self.field_disambiguation_map:
+            conflict_info = self.field_disambiguation_map[simple_field_name]
+            queryable_options = [opt for opt in conflict_info['options'] if opt['queryable']]
+            
+            if len(queryable_options) == 1:
+                # Only one queryable option - auto-resolve
+                option = queryable_options[0]
+                return {
+                    'full_path': option['full_path'],
+                    'suggested_alias': option['suggested_alias'],
+                    'schema_entry': schema[option['full_path']],
+                    'disambiguation_used': True
+                }, f"ℹ️ Auto-resolved '{field_input}' to '{option['full_path']}' ({option['hierarchy_description']})"
+            
+            elif len(queryable_options) > 1:
+                # Multiple options - return the shallowest (least nested) one with warning
+                best_option = min(queryable_options, key=lambda x: x['depth'])
+                other_options = [opt['full_path'] for opt in queryable_options if opt != best_option]
+                
+                return {
+                    'full_path': best_option['full_path'],
+                    'suggested_alias': best_option['suggested_alias'],
+                    'schema_entry': schema[best_option['full_path']],
+                    'disambiguation_used': True
+                }, f"⚠️ '{field_input}' is ambiguous. Using '{best_option['full_path']}'. Other options: {', '.join(other_options[:2])}"
+        
+        # Try partial matching
+        matching_paths = []
+        for path, details in schema.items():
+            if (details['is_queryable'] and 
+                (path.endswith('.' + field_input) or field_input in path)):
+                matching_paths.append((path, details))
+        
+        if len(matching_paths) == 1:
+            path, details = matching_paths[0]
+            return {
+                'full_path': path,
+                'schema_entry': details,
+                'disambiguation_used': True
+            }, f"ℹ️ Matched '{field_input}' to '{path}'"
+        
+        elif len(matching_paths) > 1:
+            # Multiple matches - return the shortest path
+            best_match = min(matching_paths, key=lambda x: len(x[0]))
+            other_matches = [path for path, _ in matching_paths if path != best_match[0]]
+            
+            return {
+                'full_path': best_match[0],
+                'schema_entry': best_match[1],
+                'disambiguation_used': True
+            }, f"⚠️ '{field_input}' matched multiple paths. Using '{best_match[0]}'. Other matches: {', '.join(other_matches[:2])}"
+        
+        return None, None
+    
+    def _build_select_clause_enhanced(self, fields_info: List[Dict], schema: Dict[str, Dict], json_column: str) -> str:
+        """
+        ENHANCED: Build SELECT clause with smart aliases
         """
         select_parts = []
         
         for field_info in fields_info:
             field_path = field_info['field_path']
+            suggested_alias = field_info['suggested_alias']
             schema_entry = field_info['schema_entry']
             snowflake_type = schema_entry.get('snowflake_type', 'VARCHAR')
-            
-            # DYNAMIC: Handle any array context structure
             array_context = schema_entry.get('array_context', [])
             
             if array_context:
-                # FIXED: Get the correct flatten alias for this array context
                 flatten_alias = self._get_flatten_alias(array_context)
-                
-                # DYNAMIC: Calculate relative path from the flattened context
                 relative_path = self._calculate_relative_path_dynamic(field_path, array_context)
                 sql_path = f"{flatten_alias}.value:{relative_path}::{snowflake_type}"
             else:
-                # DYNAMIC: Field is at root level - use direct JSON path
                 json_path = field_path.replace('.', ':')
                 sql_path = f"{json_column}:{json_path}::{snowflake_type}"
             
-            # DYNAMIC: Create alias from field name (last part of path)
-            alias = field_path.split('.')[-1]
-            select_parts.append(f"{sql_path} as {alias}")
+            select_parts.append(f"{sql_path} as {suggested_alias}")
         
         return f"SELECT {', '.join(select_parts)}"
     
-    def _build_from_clause_fixed(self, table_name: str, json_column: str, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
+    def _build_where_clause_enhanced(self, fields_info: List[Dict], schema: Dict[str, Dict], json_column: str) -> str:
         """
-        CRITICAL FIX: Build FROM clause WITHOUT duplicate LATERAL FLATTEN aliases
-        Groups fields by array context and reuses aliases efficiently!
-        """
-        from_parts = [table_name]
-        
-        # FIXED: Collect unique array contexts and determine flatten requirements
-        required_flattens = {}  # array_context_tuple -> flatten_info
-        
-        for field_info in fields_info:
-            array_context = field_info['schema_entry'].get('array_context', [])
-            
-            # Process each level of nesting
-            for i, context in enumerate(array_context):
-                context_tuple = tuple(array_context[:i+1])
-                
-                if context_tuple not in required_flattens:
-                    required_flattens[context_tuple] = {
-                        'level': i,
-                        'array_path': context,
-                        'full_context': array_context[:i+1]
-                    }
-        
-        # FIXED: Sort by nesting level and build LATERAL FLATTEN clauses
-        sorted_flattens = sorted(required_flattens.items(), key=lambda x: x[1]['level'])
-        
-        for context_tuple, flatten_info in sorted_flattens:
-            level = flatten_info['level']
-            array_path = flatten_info['array_path']
-            
-            # FIXED: Get or create flatten alias (reuse existing if available)
-            flatten_alias = self._get_flatten_alias(flatten_info['full_context'])
-            
-            if level == 0:
-                # DYNAMIC: First level - flatten from the main JSON column
-                clean_path = array_path.replace('.', ':')
-                flatten_input = f"{json_column}:{clean_path}"
-            else:
-                # FIXED: Subsequent levels - use correct parent alias
-                parent_context = tuple(flatten_info['full_context'][:level])
-                parent_alias = self._get_flatten_alias(list(parent_context))
-                
-                # DYNAMIC: Calculate relative path from parent to current array
-                parent_array_path = flatten_info['full_context'][level-1]
-                
-                if array_path.startswith(parent_array_path + '.'):
-                    relative_path = array_path[len(parent_array_path) + 1:]
-                else:
-                    relative_path = array_path.split('.')[-1]
-                
-                flatten_input = f"{parent_alias}.value:{relative_path}"
-            
-            from_parts.append(f"LATERAL FLATTEN(input => {flatten_input}) {flatten_alias}")
-        
-        return f"FROM {', '.join(from_parts)}"
-    
-    def _get_flatten_alias(self, array_context: List[str]) -> str:
-        """
-        FIXED: Get or create flatten alias, reusing existing aliases for same context
-        This prevents duplicate LATERAL FLATTEN clauses!
-        """
-        context_key = tuple(array_context)
-        
-        if context_key in self.flatten_alias_map:
-            return self.flatten_alias_map[context_key]
-        
-        # Create new alias
-        alias = f"f{len(array_context)}"
-        self.flatten_alias_map[context_key] = alias
-        
-        return alias
-    
-    def _calculate_relative_path_dynamic(self, full_path: str, array_context: List[str]) -> str:
-        """DYNAMIC: Calculate relative path within flattened context for any structure"""
-        if not array_context:
-            return full_path.replace('.', ':')
-        
-        # DYNAMIC: Find the deepest array context that contains this field
-        deepest_array = array_context[-1]
-        
-        # DYNAMIC: Remove array path to get relative path
-        if full_path.startswith(deepest_array + '.'):
-            relative_path = full_path[len(deepest_array) + 1:]
-        else:
-            # DYNAMIC: Fallback - use the field name
-            relative_path = full_path.split('.')[-1]
-        
-        return relative_path.replace('.', ':')
-    
-    def _build_where_clause_fixed(self, fields_info: List[Dict], schema: Dict[str, Dict], json_column: str) -> str:
-        """
-        FIXED: Build WHERE clause with proper alias references
+        ENHANCED: Build WHERE clause with proper references
         """
         where_conditions = []
         
@@ -305,7 +378,6 @@ class PythonSQLGenerator:
             schema_entry = field_info['schema_entry']
             array_context = schema_entry.get('array_context', [])
             
-            # FIXED: Build SQL reference for WHERE clause with correct aliases
             if array_context:
                 flatten_alias = self._get_flatten_alias(array_context)
                 relative_path = self._calculate_relative_path_dynamic(field_path, array_context)
@@ -314,7 +386,7 @@ class PythonSQLGenerator:
                 json_path = field_path.replace('.', ':')
                 sql_ref = f"{json_column}:{json_path}"
             
-            # DYNAMIC: Build condition based on any operator
+            # Build condition based on operator
             if operator.upper() == 'IS NOT NULL':
                 where_conditions.append(f"{sql_ref} IS NOT NULL")
             elif operator == '=':
@@ -330,23 +402,89 @@ class PythonSQLGenerator:
                 where_conditions.append(f"{sql_ref}::VARCHAR LIKE '%{value}%'")
         
         return f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
+    
+    def _get_flatten_alias(self, array_context: List[str]) -> str:
+        """Get or create flatten alias, reusing existing aliases"""
+        context_key = tuple(array_context)
+        
+        if context_key in self.flatten_alias_map:
+            return self.flatten_alias_map[context_key]
+        
+        alias = f"f{len(array_context)}"
+        self.flatten_alias_map[context_key] = alias
+        return alias
+    
+    def _build_from_clause_fixed(self, table_name: str, json_column: str, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
+        """Build FROM clause WITHOUT duplicate LATERAL FLATTEN aliases"""
+        from_parts = [table_name]
+        required_flattens = {}
+        
+        for field_info in fields_info:
+            array_context = field_info['schema_entry'].get('array_context', [])
+            
+            for i, context in enumerate(array_context):
+                context_tuple = tuple(array_context[:i+1])
+                
+                if context_tuple not in required_flattens:
+                    required_flattens[context_tuple] = {
+                        'level': i,
+                        'array_path': context,
+                        'full_context': array_context[:i+1]
+                    }
+        
+        sorted_flattens = sorted(required_flattens.items(), key=lambda x: x[1]['level'])
+        
+        for context_tuple, flatten_info in sorted_flattens:
+            level = flatten_info['level']
+            array_path = flatten_info['array_path']
+            flatten_alias = self._get_flatten_alias(flatten_info['full_context'])
+            
+            if level == 0:
+                clean_path = array_path.replace('.', ':')
+                flatten_input = f"{json_column}:{clean_path}"
+            else:
+                parent_context = tuple(flatten_info['full_context'][:level])
+                parent_alias = self._get_flatten_alias(list(parent_context))
+                parent_array_path = flatten_info['full_context'][level-1]
+                
+                if array_path.startswith(parent_array_path + '.'):
+                    relative_path = array_path[len(parent_array_path) + 1:]
+                else:
+                    relative_path = array_path.split('.')[-1]
+                
+                flatten_input = f"{parent_alias}.value:{relative_path}"
+            
+            from_parts.append(f"LATERAL FLATTEN(input => {flatten_input}) {flatten_alias}")
+        
+        return f"FROM {', '.join(from_parts)}"
+    
+    def _calculate_relative_path_dynamic(self, full_path: str, array_context: List[str]) -> str:
+        """Calculate relative path within flattened context"""
+        if not array_context:
+            return full_path.replace('.', ':')
+        
+        deepest_array = array_context[-1]
+        
+        if full_path.startswith(deepest_array + '.'):
+            relative_path = full_path[len(deepest_array) + 1:]
+        else:
+            relative_path = full_path.split('.')[-1]
+        
+        return relative_path.replace('.', ':')
 
 
 def generate_sql_from_json_data(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> str:
     """
-    FIXED: Generate SQL from any JSON data structure with proper alias management
-    This is the main function called by your application
+    ENHANCED: Generate SQL from JSON data with disambiguation support
+    This is the main function called by your application - maintains backward compatibility
     """
     try:
         generator = PythonSQLGenerator()
-        
-        # DYNAMIC: Analyze any JSON structure
         schema = generator.analyze_json_for_sql(json_data)
         
         if not schema:
             return "-- Error: Could not analyze JSON structure"
         
-        # FIXED: Generate SQL with proper alias management
         return generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
         
     except Exception as e:
@@ -354,6 +492,27 @@ def generate_sql_from_json_data(json_data: Any, table_name: str, json_column: st
         return f"-- Error: {str(e)}"
 
 
-# Main function for external usage
+def generate_sql_from_json_data_with_warnings(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> Tuple[str, List[str], Dict]:
+    """
+    NEW: Enhanced version that returns SQL, warnings, and disambiguation info
+    Use this for enhanced UI features
+    """
+    try:
+        generator = PythonSQLGenerator()
+        schema = generator.analyze_json_for_sql(json_data)
+        
+        if not schema:
+            return "-- Error: Could not analyze JSON structure", ["❌ Schema analysis failed"], {}
+        
+        sql, warnings = generator.generate_sql_with_warnings(table_name, json_column, field_conditions, schema)
+        disambiguation_info = generator.get_field_disambiguation_info()
+        
+        return sql, warnings, disambiguation_info
+        
+    except Exception as e:
+        logger.error(f"Enhanced SQL generation failed: {e}")
+        return f"-- Error: {str(e)}", [f"❌ Generation error: {str(e)}"], {}
+
+
 if __name__ == "__main__":
-    logger.info("Python SQL Generator module loaded successfully")
+    logger.info("Enhanced Python SQL Generator module loaded successfully")
