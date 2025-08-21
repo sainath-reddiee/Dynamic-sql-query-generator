@@ -23,7 +23,9 @@ from universal_db_analyzer import (
     generate_database_driven_sql,
     analyze_database_json_schema_universal,
     render_enhanced_database_json_preview,
-    test_database_connectivity
+    test_database_connectivity,
+    render_disambiguation_helper_ui,
+    render_enhanced_field_suggestions
 )
 
 from json_analyzer import analyze_json_structure
@@ -101,12 +103,19 @@ st.markdown("""
         border: 1px solid #ffb74d;
         margin: 1rem 0;
     }
+    .disambiguation-alert {
+        background: linear-gradient(145deg, #fff3e0, #ffeaa7);
+        padding: 1rem;
+        border-radius: 8px;
+        border: 2px solid #fdcb6e;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 
 def render_database_operations_ui(conn_manager: UnifiedSnowflakeConnector):
-    """Unified operations UI that works for both standard and enhanced modes"""
+    """Enhanced operations UI with disambiguation support for both standard and enhanced modes"""
     
     # Display current mode information
     mode_text = "Enhanced" if conn_manager.enhanced_mode else "Standard"
@@ -117,7 +126,7 @@ def render_database_operations_ui(conn_manager: UnifiedSnowflakeConnector):
     <div class="mode-selector">
         <h5 style="color: {mode_color}; margin-bottom: 0.5rem;">{mode_icon} Currently in {mode_text} Mode</h5>
         <p style="margin-bottom: 0; font-size: 0.9rem;">
-            {'🛡️ Session context management + 🚀 Modin acceleration + 📊 Performance tracking' if conn_manager.enhanced_mode else '📊 Basic connectivity with standard pandas processing'}
+            {'🛡️ Session context management + 🚀 Modin acceleration + 📊 Performance tracking + ⚠️ Field disambiguation' if conn_manager.enhanced_mode else '📊 Basic connectivity with standard pandas processing + ⚠️ Field disambiguation'}
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -245,9 +254,9 @@ LIMIT 20;"""
 SELECT * FROM your_table LIMIT 10;"""
             st.rerun()
 
-    # Smart JSON Analysis Section (moved down after Custom SQL)
+    # Enhanced Smart JSON Analysis Section with disambiguation
     st.markdown("---")
-    st.markdown("### 🧪 Smart JSON Analysis")
+    st.markdown("### 🧪 Smart JSON Analysis with Disambiguation")
     
     if conn_manager.enhanced_mode:
         st.markdown("""
@@ -258,7 +267,20 @@ SELECT * FROM your_table LIMIT 10;"""
                 <li><strong>🚀 Modin performance acceleration</strong> for large datasets</li>
                 <li><strong>📊 Real-time performance tracking</strong> during analysis</li>
                 <li><strong>🏷️ Smart table name resolution</strong> - Works with partial names</li>
-                <li><strong>💡 Intelligent field suggestions</strong> based on your data</li>
+                <li><strong>⚠️ Field disambiguation support</strong> - Handles duplicate field names</li>
+                <li><strong>💡 Intelligent field suggestions</strong> based on your data structure</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="feature-box">
+            <h5 style="color: #1976d2;">🏔️ Standard Features Active:</h5>
+            <ul style="color: #0d47a1; margin-bottom: 0;">
+                <li><strong>📊 Basic connectivity and operations</strong></li>
+                <li><strong>🔧 Standard pandas processing</strong></li>
+                <li><strong>⚠️ Field disambiguation support</strong> - Handles duplicate field names</li>
+                <li><strong>💡 Smart field suggestions</strong> based on your data structure</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -293,38 +315,69 @@ SELECT * FROM your_table LIMIT 10;"""
             "Show Detailed Schema Preview 👀",
             value=True,
             key="unified_show_preview",
-            help="Display comprehensive analysis of discovered JSON fields"
+            help="Display comprehensive analysis of discovered JSON fields with disambiguation info"
         )
 
     field_conditions = st.text_area(
         "Field Conditions* 🎯",
         height=100,
-        placeholder="e.g., name, age[>:18], status[=:active]",
+        placeholder="e.g., name, company.name, departments.employees.name[IS NOT NULL]",
         key="unified_field_conditions",
-        help="Specify JSON fields and their filtering conditions"
+        help="Specify JSON fields and their filtering conditions. Use full paths to avoid ambiguity."
     )
 
-    # Smart suggestions section (for enhanced mode)
-    if conn_manager.enhanced_mode and 'discovered_schema_unified' in st.session_state:
-        with st.expander("💡 Smart Field Suggestions (Based on Your Data)"):
+    # Enhanced smart suggestions section (with disambiguation awareness)
+    if 'discovered_schema_unified' in st.session_state:
+        with st.expander("💡 Smart Field Suggestions (Disambiguation-Aware)", expanded=False):
             try:
-                from universal_db_analyzer import render_enhanced_field_suggestions
-                suggestions = render_enhanced_field_suggestions(st.session_state.discovered_schema_unified)
+                schema = st.session_state.discovered_schema_unified
+                metadata = st.session_state.get('schema_metadata_unified', {})
+                disambiguation_info = metadata.get('disambiguation_info', {})
+                
+                suggestions = render_enhanced_field_suggestions(schema, disambiguation_info)
 
                 if suggestions:
-                    st.markdown("**🎯 Suggested field conditions based on your JSON data:**")
+                    st.markdown("**🎯 Smart suggestions based on your JSON structure:**")
+                    
+                    # Show disambiguation warning if conflicts exist
+                    if disambiguation_info:
+                        st.markdown("""
+                        <div class="disambiguation-alert">
+                            <strong>⚠️ Field Disambiguation Active:</strong> Detected field name conflicts. 
+                            Suggestions use full paths to avoid ambiguity.
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
                     cols = st.columns(2)
-                    for i, suggestion in enumerate(suggestions[:8]):
-                        col_idx = i % 2
-                        with cols[col_idx]:
-                            if st.button(f"Use: `{suggestion}`", key=f"use_unified_suggestion_{i}"):
-                                st.session_state.unified_field_conditions = suggestion
-                                st.rerun()
-                            st.code(suggestion, language="text")
+                    suggestion_count = 0
+                    for suggestion in suggestions:
+                        if suggestion.startswith('#'):
+                            # This is a comment, display differently
+                            st.markdown(f"**{suggestion}**")
+                        else:
+                            col_idx = suggestion_count % 2
+                            with cols[col_idx]:
+                                if st.button(f"Use: `{suggestion.split('#')[0].strip()}`", key=f"use_unified_suggestion_{suggestion_count}"):
+                                    current_conditions = st.session_state.get('unified_field_conditions', '').strip()
+                                    clean_suggestion = suggestion.split('#')[0].strip()
+                                    new_condition = f"{current_conditions}, {clean_suggestion}" if current_conditions else clean_suggestion
+                                    st.session_state.unified_field_conditions = new_condition
+                                    st.rerun()
+                                st.code(suggestion, language="text")
+                            suggestion_count += 1
                 else:
                     st.info("No specific suggestions available for this schema.")
+                    
             except Exception as e:
-                st.warning(f"Could not generate suggestions: {e}")
+                st.warning(f"Could not generate enhanced suggestions: {e}")
+
+    # Enhanced disambiguation helper
+    if 'schema_metadata_unified' in st.session_state:
+        metadata = st.session_state.schema_metadata_unified
+        disambiguation_info = metadata.get('disambiguation_info', {})
+        
+        if disambiguation_info and field_conditions:
+            render_disambiguation_helper_ui(field_conditions, disambiguation_info)
 
     col3, col4 = st.columns(2)
 
@@ -332,7 +385,7 @@ SELECT * FROM your_table LIMIT 10;"""
         if st.button("🔍 Analyze Schema Only", type="secondary"):
             if table_name and json_column:
                 try:
-                    with st.spinner(f"🔄 {'Enhanced' if conn_manager.enhanced_mode else 'Standard'} schema analysis in progress..."):
+                    with st.spinner(f"🔄 {'Enhanced' if conn_manager.enhanced_mode else 'Standard'} schema analysis with disambiguation..."):
                         schema, error, metadata = analyze_database_json_schema_universal(
                             conn_manager, table_name, json_column, sample_size
                         )
@@ -343,6 +396,11 @@ SELECT * FROM your_table LIMIT 10;"""
                             # Store in session state for suggestions
                             st.session_state.discovered_schema_unified = schema
                             st.session_state.schema_metadata_unified = metadata
+
+                            # Show disambiguation summary
+                            disambiguation_info = metadata.get('disambiguation_info', {})
+                            if disambiguation_info:
+                                st.info(f"🚨 Found {len(disambiguation_info)} field names with multiple locations. Check the detailed preview for disambiguation options.")
 
                             if show_preview:
                                 render_enhanced_database_json_preview(schema, metadata)
@@ -360,30 +418,30 @@ SELECT * FROM your_table LIMIT 10;"""
 
         if analyze_and_execute and all([table_name, json_column, field_conditions]):
             try:
-                # Generate SQL using the universal database-driven analysis
-                with st.spinner(f"⚡ {'Enhanced' if conn_manager.enhanced_mode else 'Standard'} analysis in progress..."):
+                # Generate SQL using the enhanced universal database-driven analysis
+                with st.spinner(f"⚡ {'Enhanced' if conn_manager.enhanced_mode else 'Standard'} analysis with disambiguation..."):
                     generated_sql, sql_error = generate_database_driven_sql(
                         conn_manager, table_name, json_column, field_conditions
                     )
 
                     if generated_sql and not sql_error:
-                        st.success("✅ SQL Generated Successfully!")
+                        st.success("✅ Enhanced SQL Generated Successfully with Disambiguation Support!")
                         st.code(generated_sql, language="sql")
 
                         # Execute with appropriate method based on connector mode
                         if conn_manager.enhanced_mode:
                             # Enhanced mode: Use performance tracking
-                            with st.spinner("⚡ Executing with performance monitoring..."):
+                            with st.spinner("⚡ Executing with performance monitoring and disambiguation verification..."):
                                 result_df, exec_error, perf_stats = conn_manager.execute_query_with_performance(generated_sql)
 
                                 if result_df is not None:
-                                    st.success("✅ Query executed with performance monitoring!")
+                                    st.success("✅ Query executed with enhanced performance monitoring!")
 
                                     # Display performance metrics
                                     render_performance_metrics(perf_stats)
 
-                                    # Results summary
-                                    col_sum1, col_sum2, col_sum3 = st.columns(3)
+                                    # Enhanced results summary
+                                    col_sum1, col_sum2, col_sum3, col_sum4 = st.columns(4)
                                     with col_sum1:
                                         st.metric("Rows Returned", len(result_df))
                                     with col_sum2:
@@ -391,45 +449,55 @@ SELECT * FROM your_table LIMIT 10;"""
                                     with col_sum3:
                                         processing_engine = "🚀 Modin" if perf_stats.get('modin_used', False) else "📊 Pandas"
                                         st.metric("Processing Engine", processing_engine)
+                                    with col_sum4:
+                                        # Check if disambiguation was used based on column aliases
+                                        aliases_used = [col for col in result_df.columns if '_' in col and not col.startswith('_')]
+                                        disambiguation_used = "✅ Applied" if len(aliases_used) > 0 else "➖ Not Needed"
+                                        st.metric("Disambiguation", disambiguation_used)
 
                                     st.dataframe(result_df, use_container_width=True)
 
-                                    # Enhanced download with performance info
+                                    # Enhanced download with disambiguation info
                                     if not result_df.empty:
                                         csv_data = result_df.to_csv(index=False).encode('utf-8')
-                                        filename = f"enhanced_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                                        filename = f"enhanced_results_with_disambiguation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
                                         st.download_button(
-                                            "📥 Download Results",
+                                            "📥 Download Enhanced Results",
                                             data=csv_data,
                                             file_name=filename,
                                             mime="text/csv"
                                         )
 
-                                        # Performance summary
-                                        st.info(f"⚡ **Performance Summary:** Processed {len(result_df):,} rows in {perf_stats.get('total_time', 0):.2f}s using {processing_engine}")
+                                        # Enhanced performance summary
+                                        st.info(f"⚡ **Enhanced Performance Summary:** Processed {len(result_df):,} rows in {perf_stats.get('total_time', 0):.2f}s using {processing_engine} with disambiguation support")
                                 else:
                                     st.error(f"❌ Query execution failed: {exec_error}")
                         else:
-                            # Standard mode: Basic execution
-                            with st.spinner("🔄 Executing query in standard mode..."):
+                            # Standard mode: Basic execution with disambiguation
+                            with st.spinner("🔄 Executing query in standard mode with disambiguation..."):
                                 result_df, exec_error = conn_manager.execute_query(generated_sql)
 
                                 if result_df is not None:
-                                    st.success("✅ Query executed successfully!")
+                                    st.success("✅ Query executed successfully with disambiguation support!")
 
-                                    # Results summary
-                                    col_sum1, col_sum2 = st.columns(2)
+                                    # Enhanced results summary
+                                    col_sum1, col_sum2, col_sum3 = st.columns(3)
                                     with col_sum1:
                                         st.metric("Rows Returned", len(result_df))
                                     with col_sum2:
                                         st.metric("Columns", len(result_df.columns))
+                                    with col_sum3:
+                                        # Check if disambiguation was used based on column aliases
+                                        aliases_used = [col for col in result_df.columns if '_' in col and not col.startswith('_')]
+                                        disambiguation_used = "✅ Applied" if len(aliases_used) > 0 else "➖ Not Needed"
+                                        st.metric("Disambiguation", disambiguation_used)
 
                                     st.dataframe(result_df, use_container_width=True)
 
-                                    # Download option
+                                    # Enhanced download option
                                     if not result_df.empty:
                                         csv_data = result_df.to_csv(index=False).encode('utf-8')
-                                        filename = f"standard_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                                        filename = f"standard_results_with_disambiguation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
                                         st.download_button(
                                             "📥 Download Results",
                                             data=csv_data,
@@ -439,11 +507,11 @@ SELECT * FROM your_table LIMIT 10;"""
                                 else:
                                     st.error(f"❌ Query execution failed: {exec_error}")
                     else:
-                        st.error(f"❌ SQL Generation Error: {sql_error}")
+                        st.error(f"❌ Enhanced SQL Generation Error: {sql_error}")
 
             except Exception as e:
-                st.error(f"❌ Analysis failed: {str(e)}")
-                st.info("💡 Try checking your table name, column name, and database permissions.")
+                st.error(f"❌ Enhanced analysis failed: {str(e)}")
+                st.info("💡 Try checking your table name, column name, database permissions, and field disambiguation.")
 
         elif analyze_and_execute:
             st.warning("⚠️ Please fill in all required fields.")
@@ -483,9 +551,9 @@ SELECT * FROM your_table LIMIT 10;"""
             st.info("✅ Disconnected. Please reconnect in your preferred mode.")
             st.rerun()
 
-    # Connection details
+    # Enhanced connection details with disambiguation info
     if conn_manager.is_connected:
-        with st.expander("ℹ️ Connection Details & Status"):
+        with st.expander("ℹ️ Enhanced Connection Details & Status"):
             col_info1, col_info2 = st.columns(2)
             
             with col_info1:
@@ -501,29 +569,30 @@ SELECT * FROM your_table LIMIT 10;"""
                     st.text(f"{key}: {value}")
             
             with col_info2:
-                st.markdown("**Feature Status:**")
+                st.markdown("**Enhanced Feature Status:**")
                 st.text(f"Mode: {'Enhanced' if conn_manager.enhanced_mode else 'Standard'}")
                 st.text(f"Session Management: {'✅ Active' if conn_manager.enhanced_mode else '❌ Basic'}")
                 st.text(f"Modin Acceleration: {'🚀 Available' if MODIN_AVAILABLE else '📊 Not Available'}")
                 st.text(f"Performance Tracking: {'✅ Active' if conn_manager.enhanced_mode else '❌ Not Available'}")
+                st.text(f"Field Disambiguation: ✅ Active")
 
 
 # Main App
 def main():
     try:
-        st.markdown('<h1 class="main-header">❄️ Unified JSON-to-SQL Analyzer for Snowflake</h1>', unsafe_allow_html=True)
-
-        # Display performance information at the top
+        st.markdown('<h1 class="main-header">❄️ Enhanced JSON-to-SQL Analyzer for Snowflake</h1>', unsafe_allow_html=True)
+        
+        # Display enhanced performance information at the top
         render_performance_info()
 
-        # SIMPLIFIED: Only two main tabs now
+        # SIMPLIFIED: Only two main tabs now with enhanced features
         main_tab1, main_tab2 = st.tabs([
-            "🐍 **Pure Python (Instant SQL Generation)**",
-            "🏔️ **Snowflake Database Connection**"
+            "🐍 **Enhanced Python (Instant SQL Generation)**",
+            "🏔️ **Enhanced Snowflake Database Connection**"
         ])
 
         with main_tab1:
-            st.markdown('<h2 class="section-header">🐍 Generate SQL from JSON Input</h2>', unsafe_allow_html=True)
+            st.markdown('<h2 class="section-header">🐍 Generate SQL from JSON Input with Smart Disambiguation</h2>', unsafe_allow_html=True)
             st.markdown("""
             <div class="feature-box">
             <p>Upload or paste your JSON data below to analyze its structure and instantly generate a corresponding Snowflake SQL query. 
@@ -532,12 +601,12 @@ def main():
             """, unsafe_allow_html=True)
 
             # Sidebar for input method selection
-            st.sidebar.header("📥 Data Input for Python Analyzer")
+            st.sidebar.header("📥 Data Input for Enhanced Python Analyzer")
             input_method = st.sidebar.radio(
                 "Choose your input method:",
                 ["Upload JSON File", "Paste JSON Text"],
                 key="input_method",
-                help="Select how you want to provide your JSON data for analysis"
+                help="Select how you want to provide your JSON data for analysis with disambiguation support"
             )
 
             json_data = None
