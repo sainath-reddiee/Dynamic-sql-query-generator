@@ -792,7 +792,7 @@ def main():
                             st.code(ex, language="text")
 
                     # ENHANCED: Generate SQL with warnings
-                    if st.button("🚀 Generate SQL with Smart Disambiguation", type="primary"):
+                    if st.button("🚀 Generate SQL", type="primary"):
                         if all([table_name, json_column, field_conditions]):
                             with st.spinner("🔍 Generating SQL with disambiguation analysis..."):
                                 # Use the enhanced version that returns warnings
