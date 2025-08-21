@@ -11,7 +11,7 @@ from python_sql_generator import generate_sql_from_json_data
 
 # UNIFIED: Import the new unified connector instead of both separate ones
 from unified_snowflake_connector import (
-    UnifiedSnowflakeConnector, 
+    UnifiedSnowflakeConnector,
     render_unified_connection_ui,
     render_performance_info,
     render_performance_metrics,
@@ -116,12 +116,12 @@ st.markdown("""
 
 def render_database_operations_ui(conn_manager: UnifiedSnowflakeConnector):
     """Enhanced operations UI with disambiguation support for both standard and enhanced modes"""
-    
+
     # Display current mode information
     mode_text = "Enhanced" if conn_manager.enhanced_mode else "Standard"
     mode_color = "#2e7d32" if conn_manager.enhanced_mode else "#1976d2"
     mode_icon = "⚡" if conn_manager.enhanced_mode else "🏔️"
-    
+
     st.markdown(f"""
     <div class="mode-selector">
         <h5 style="color: {mode_color}; margin-bottom: 0.5rem;">{mode_icon} Currently in {mode_text} Mode</h5>
@@ -150,8 +150,8 @@ def render_database_operations_ui(conn_manager: UnifiedSnowflakeConnector):
         placeholder="""-- Quick examples to try:
 SHOW TABLES;
 -- or --
-SELECT * FROM INFORMATION_SCHEMA.TABLES 
-WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA' 
+SELECT * FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA'
 LIMIT 10;
 -- or --
 SELECT json_data:name::VARCHAR as name,
@@ -229,25 +229,25 @@ LIMIT 10;""",
     # 🎯 Helpful SQL examples for quick access
     st.markdown("#### 💡 Quick SQL Examples:")
     col_ex1, col_ex2, col_ex3 = st.columns(3)
-    
+
     with col_ex1:
         if st.button("📋 Show Tables", help="List all tables"):
             st.session_state.unified_custom_sql = "SHOW TABLES;"
             st.rerun()
-    
+
     with col_ex2:
         if st.button("🏗️ Table Schema", help="Get table information"):
-            st.session_state.unified_custom_sql = """SELECT 
+            st.session_state.unified_custom_sql = """SELECT
     TABLE_CATALOG as DATABASE_NAME,
-    TABLE_SCHEMA as SCHEMA_NAME, 
+    TABLE_SCHEMA as SCHEMA_NAME,
     TABLE_NAME,
     TABLE_TYPE
-FROM INFORMATION_SCHEMA.TABLES 
+FROM INFORMATION_SCHEMA.TABLES
 WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA'
 ORDER BY TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
 LIMIT 20;"""
             st.rerun()
-    
+
     with col_ex3:
         if st.button("📊 Sample Data", help="Sample from a table"):
             st.session_state.unified_custom_sql = """-- Replace 'your_table' with actual table name
@@ -257,7 +257,7 @@ SELECT * FROM your_table LIMIT 10;"""
     # Enhanced Smart JSON Analysis Section with disambiguation
     st.markdown("---")
     st.markdown("### 🧪 Smart JSON Analysis with Disambiguation")
-    
+
     if conn_manager.enhanced_mode:
         st.markdown("""
         <div class="enhanced-box">
@@ -333,21 +333,21 @@ SELECT * FROM your_table LIMIT 10;"""
                 schema = st.session_state.discovered_schema_unified
                 metadata = st.session_state.get('schema_metadata_unified', {})
                 disambiguation_info = metadata.get('disambiguation_info', {})
-                
+
                 suggestions = render_enhanced_field_suggestions(schema, disambiguation_info)
 
                 if suggestions:
                     st.markdown("**🎯 Smart suggestions based on your JSON structure:**")
-                    
+
                     # Show disambiguation warning if conflicts exist
                     if disambiguation_info:
                         st.markdown("""
                         <div class="disambiguation-alert">
-                            <strong>⚠️ Field Disambiguation Active:</strong> Detected field name conflicts. 
+                            <strong>⚠️ Field Disambiguation Active:</strong> Detected field name conflicts.
                             Suggestions use full paths to avoid ambiguity.
                         </div>
                         """, unsafe_allow_html=True)
-                    
+
                     cols = st.columns(2)
                     suggestion_count = 0
                     for suggestion in suggestions:
@@ -367,7 +367,7 @@ SELECT * FROM your_table LIMIT 10;"""
                             suggestion_count += 1
                 else:
                     st.info("No specific suggestions available for this schema.")
-                    
+
             except Exception as e:
                 st.warning(f"Could not generate enhanced suggestions: {e}")
 
@@ -375,7 +375,7 @@ SELECT * FROM your_table LIMIT 10;"""
     if 'schema_metadata_unified' in st.session_state:
         metadata = st.session_state.schema_metadata_unified
         disambiguation_info = metadata.get('disambiguation_info', {})
-        
+
         if disambiguation_info and field_conditions:
             render_disambiguation_helper_ui(field_conditions, disambiguation_info)
 
@@ -555,7 +555,7 @@ SELECT * FROM your_table LIMIT 10;"""
     if conn_manager.is_connected:
         with st.expander("ℹ️ Enhanced Connection Details & Status"):
             col_info1, col_info2 = st.columns(2)
-            
+
             with col_info1:
                 st.markdown("**Connection Information:**")
                 conn_info = {
@@ -564,10 +564,10 @@ SELECT * FROM your_table LIMIT 10;"""
                     'Schema': conn_manager.connection_params.get('schema', 'N/A'),
                     'Warehouse': conn_manager.connection_params.get('warehouse', 'N/A')
                 }
-                
+
                 for key, value in conn_info.items():
                     st.text(f"{key}: {value}")
-            
+
             with col_info2:
                 st.markdown("**Enhanced Feature Status:**")
                 st.text(f"Mode: {'Enhanced' if conn_manager.enhanced_mode else 'Standard'}")
@@ -581,7 +581,7 @@ SELECT * FROM your_table LIMIT 10;"""
 def main():
     try:
         st.markdown('<h1 class="main-header">❄️ Enhanced JSON-to-SQL Analyzer for Snowflake</h1>', unsafe_allow_html=True)
-        
+
         # Display enhanced performance information at the top
         render_performance_info()
 
@@ -595,7 +595,7 @@ def main():
             st.markdown('<h2 class="section-header">🐍 Generate SQL from JSON Input with Smart Disambiguation</h2>', unsafe_allow_html=True)
             st.markdown("""
             <div class="feature-box">
-            <p>Upload or paste your JSON data below to analyze its structure and instantly generate a corresponding Snowflake SQL query. 
+            <p>Upload or paste your JSON data below to analyze its structure and instantly generate a corresponding Snowflake SQL query.
             <strong>🎯 Enhanced with Smart Disambiguation:</strong> Automatically handles duplicate field names at different hierarchy levels.</p>
             </div>
             """, unsafe_allow_html=True)
@@ -653,7 +653,7 @@ def main():
 
                 with tab1:
                     st.markdown('<h3 class="section-header">⚡ Smart SQL Generator with Disambiguation</h3>', unsafe_allow_html=True)
-                    
+
                     # ENHANCED: Add disambiguation info display
                     if json_data:
                         # Analyze JSON for disambiguation info
@@ -661,17 +661,17 @@ def main():
                         temp_generator = PythonSQLGenerator()
                         temp_schema = temp_generator.analyze_json_for_sql(json_data)
                         disambiguation_info = temp_generator.get_field_disambiguation_info()
-                        
+
                         # Show disambiguation alerts if conflicts exist
                         if disambiguation_info:
                             st.markdown("#### 🚨 Field Name Conflicts Detected")
-                            
+
                             conflict_summary = []
                             for field_name, conflict_data in disambiguation_info.items():
                                 conflict_count = conflict_data['conflict_count']
                                 options = conflict_data['options']
                                 queryable_options = [opt for opt in options if opt['queryable']]
-                                
+
                                 conflict_summary.append({
                                     'Field Name': field_name,
                                     'Conflict Count': conflict_count,
@@ -679,16 +679,16 @@ def main():
                                     'Paths': ' | '.join([opt['full_path'] for opt in queryable_options[:3]]),
                                     'Recommended': conflict_data.get('recommended_option', {}).get('full_path', 'N/A')
                                 })
-                            
+
                             if conflict_summary:
                                 st.warning(f"⚠️ Found {len(conflict_summary)} field names with multiple locations")
-                                
+
                                 # Show conflicts in expandable section
                                 with st.expander("🔍 View Conflict Details", expanded=False):
                                     import pandas as pd
                                     conflicts_df = pd.DataFrame(conflict_summary)
                                     st.dataframe(conflicts_df, use_container_width=True)
-                                    
+
                                     st.markdown("**💡 How disambiguation works:**")
                                     st.markdown("""
                                     - When you specify just a field name (like `name`), the system automatically chooses the **least nested** occurrence
@@ -697,21 +697,21 @@ def main():
                                     """)
                         else:
                             st.success("✅ No field name conflicts detected - all field names are unique!")
-                    
+
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("Query Parameters")
                         table_name = st.text_input("Table Name*", key="py_table", placeholder="your_schema.your_table")
                         json_column = st.text_input("JSON Column Name*", key="py_json_col", placeholder="json_data")
-                        field_conditions = st.text_area("Field Conditions*", height=100, key="py_fields", 
+                        field_conditions = st.text_area("Field Conditions*", height=100, key="py_fields",
                                                        placeholder="e.g., name, company.name, departments.employees.name")
-                        
-                        # ENHANCED: Add smart field suggestions
+
+                        # ENHANCED: Add smart field suggestions with the fix
                         if json_data and temp_schema:
                             with st.expander("💡 Smart Field Suggestions", expanded=False):
                                 st.markdown("**Available queryable fields:**")
-                                
-                                queryable_fields = []
+
+                                queryable_fields_list = []
                                 for path, details in temp_schema.items():
                                     if details.get('is_queryable', False):
                                         field_info = {
@@ -720,34 +720,44 @@ def main():
                                             'Sample': str(details.get('sample_value', ''))[:50] + ('...' if len(str(details.get('sample_value', ''))) > 50 else ''),
                                             'Context': details.get('hierarchy_level', 'Root')
                                         }
-                                        queryable_fields.append(field_info)
-                                
+                                        queryable_fields_list.append(field_info)
+
+                                # Define the callback function inside the main function to have access to the scope
+                                def update_field_conditions(suggestion):
+                                    current_conditions = st.session_state.get('py_fields', '').strip()
+                                    if current_conditions:
+                                        st.session_state.py_fields = f"{current_conditions}, {suggestion}"
+                                    else:
+                                        st.session_state.py_fields = suggestion
+
                                 # Show first 10 fields
-                                for field in queryable_fields[:10]:
+                                for field in queryable_fields_list[:10]:
                                     cols = st.columns([3, 1, 2, 1])
                                     with cols[0]:
-                                        if st.button(f"Use: {field['Field Path']}", key=f"use_field_{field['Field Path']}", type="secondary"):
-                                            current_conditions = st.session_state.get('py_fields', '').strip()
-                                            new_condition = f"{current_conditions}, {field['Field Path']}" if current_conditions else field['Field Path']
-                                            st.session_state.py_fields = new_condition
-                                            st.rerun()
+                                        st.button(
+                                            f"Use: {field['Field Path']}",
+                                            key=f"use_field_{field['Field Path']}",
+                                            on_click=update_field_conditions,
+                                            args=(field['Field Path'],),
+                                            type="secondary"
+                                        )
                                     with cols[1]:
                                         st.caption(field['Type'])
                                     with cols[2]:
                                         st.caption(field['Sample'])
                                     with cols[3]:
                                         st.caption(field['Context'])
-                                
-                                if len(queryable_fields) > 10:
-                                    st.caption(f"... and {len(queryable_fields) - 10} more fields")
+
+                                if len(queryable_fields_list) > 10:
+                                    st.caption(f"... and {len(queryable_fields_list) - 10} more fields")
 
                     with col2:
                         st.subheader("💡 Examples & Help")
-                        
+
                         # ENHANCED: Context-aware examples
                         if json_data and temp_schema:
                             st.markdown("**🎯 Examples for your JSON:**")
-                            
+
                             # Generate smart examples based on actual data
                             example_fields = []
                             for path, details in temp_schema.items():
@@ -755,13 +765,13 @@ def main():
                                     example_fields.append(path)
                                     if len(example_fields) >= 3:
                                         break
-                            
+
                             if example_fields:
                                 st.code(f"# Basic field selection\n{', '.join(example_fields[:2])}", language="text")
-                                
+
                                 if len(example_fields) >= 2:
                                     st.code(f"# With conditions\n{example_fields[0]}[IS NOT NULL], {example_fields[1]}[=:some_value]", language="text")
-                                
+
                                 # Show disambiguation examples if conflicts exist
                                 if disambiguation_info:
                                     conflict_field = list(disambiguation_info.keys())[0]
@@ -769,12 +779,12 @@ def main():
                                     st.markdown("**🚨 Disambiguation Examples:**")
                                     st.code(f"# Ambiguous (auto-resolved)\n{conflict_field}", language="text")
                                     st.code(f"# Explicit paths\n{', '.join([opt['full_path'] for opt in options])}", language="text")
-                        
+
                         # Standard examples
                         st.markdown("**📋 Standard Examples:**")
                         examples = [
                             "name, age, email",
-                            "user.name, user.profile.age[>:18]", 
+                            "user.name, user.profile.age[>:18]",
                             "status[=:active], created_date[IS NOT NULL]",
                             "tags[IN:premium|gold], score[>:100]"
                         ]
@@ -787,11 +797,11 @@ def main():
                             with st.spinner("🔍 Generating SQL with disambiguation analysis..."):
                                 # Use the enhanced version that returns warnings
                                 from python_sql_generator import generate_sql_from_json_data_with_warnings
-                                
+
                                 sql, warnings, disambiguation_details = generate_sql_from_json_data_with_warnings(
                                     json_data, table_name, json_column, field_conditions
                                 )
-                                
+
                                 # Display warnings if any
                                 if warnings:
                                     st.markdown("#### 🔔 Disambiguation Alerts")
@@ -802,11 +812,11 @@ def main():
                                             st.info(warning)
                                         else:
                                             st.info(warning)
-                                
+
                                 # Display the generated SQL
                                 st.markdown("#### 🎯 Generated SQL")
                                 st.code(sql, language="sql")
-                                
+
                                 # Show additional details if disambiguation was used
                                 if any("Auto-resolved" in w or "ambiguous" in w for w in warnings):
                                     with st.expander("🔍 Disambiguation Details", expanded=False):
@@ -816,7 +826,7 @@ def main():
                                             if condition:
                                                 field_name = condition.split('[')[0].strip()
                                                 simple_name = field_name.split('.')[-1]
-                                                
+
                                                 if simple_name in disambiguation_details:
                                                     conflict_data = disambiguation_details[simple_name]
                                                     st.markdown(f"**{field_name}:**")
@@ -860,7 +870,7 @@ def main():
 
         with main_tab2:
             st.markdown('<h2 class="section-header">🏔️ Snowflake Database Connection</h2>', unsafe_allow_html=True)
-            
+
             # Mode selection section
             st.markdown("### 🔧 Choose Connection Mode")
             st.markdown("""
@@ -868,19 +878,19 @@ def main():
             <p>Choose the connection mode that best fits your needs. You can switch between modes by disconnecting and reconnecting.</p>
             </div>
             """, unsafe_allow_html=True)
-            
+
             col_mode1, col_mode2 = st.columns(2)
-            
+
             with col_mode1:
                 st.markdown("""
                 **🏔️ Standard Mode:**
                 - ✅ Basic connectivity and operations
-                - 📊 Standard pandas processing  
+                - 📊 Standard pandas processing
                 - 🔧 Simple error handling
                 - 💾 Good for small to medium datasets
                 - 🚀 Quick setup and testing
                 """)
-                
+
             with col_mode2:
                 st.markdown("""
                 **⚡ Enhanced Mode:**
@@ -890,7 +900,7 @@ def main():
                 - 🏷️ Smart table name resolution
                 - 🔧 Advanced error recovery
                 """)
-            
+
             # Mode selection
             connection_mode = st.radio(
                 "Select Connection Mode:",
@@ -899,18 +909,18 @@ def main():
                 horizontal=True,
                 help="Enhanced mode includes all standard features plus advanced capabilities"
             )
-            
+
             enhanced_mode = "Enhanced" in connection_mode
-            
+
             # Single unified connection UI
             st.markdown("---")
             st.subheader("🔐 Database Connection")
             conn_manager = render_unified_connection_ui(enhanced_mode=enhanced_mode)
-            
+
             if conn_manager and conn_manager.is_connected:
                 # Test connectivity with comprehensive diagnostics
                 connectivity_ok, status_msg = test_database_connectivity(conn_manager)
-                
+
                 if connectivity_ok:
                     st.success(status_msg)
                     st.markdown("---")
@@ -919,7 +929,7 @@ def main():
                 else:
                     st.error(status_msg)
                     st.info("💡 Try disconnecting and reconnecting with correct database/schema settings.")
-                    
+
                     # Disconnect button for troubleshooting
                     if st.button("🔌 Disconnect and Retry", type="secondary"):
                         conn_manager.disconnect()
