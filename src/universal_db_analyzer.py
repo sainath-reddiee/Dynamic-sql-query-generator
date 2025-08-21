@@ -188,7 +188,7 @@ def resolve_table_name_universal(conn_manager, table_name: str) -> str:
 def analyze_database_json_schema_universal(conn_manager, table_name: str, json_column: str, 
                                          sample_size: int = 10) -> Tuple[Optional[Dict], Optional[str], Dict]:
     """
-    FIXED UNIVERSAL JSON schema analysis - uses the FIXED SQL generator
+    ENHANCED UNIVERSAL JSON schema analysis with disambiguation support
     """
     metadata = {
         'table_name': table_name,
@@ -196,7 +196,9 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
         'sample_size': 0,
         'unique_schemas': 0,
         'analysis_success': False,
-        'resolved_table_name': resolve_table_name_universal(conn_manager, table_name)
+        'resolved_table_name': resolve_table_name_universal(conn_manager, table_name),
+        'field_conflicts': 0,
+        'disambiguation_info': {}
     }
 
     # Create progress tracking
@@ -220,18 +222,18 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
         metadata['sample_size'] = len(json_samples)
         progress_bar.progress(40)
 
-        # Step 2: Analyze JSON structure using the FIXED SQL generator logic
-        status_text.text("🔬 Analyzing JSON structure with FIXED logic...")
+        # Step 2: Analyze JSON structure using the ENHANCED SQL generator logic
+        status_text.text("🔬 Analyzing JSON structure with disambiguation tracking...")
 
-        # CRITICAL FIX: Import the FIXED SQL generator
+        # ENHANCED: Import the enhanced SQL generator
         from python_sql_generator import PythonSQLGenerator
 
         # Create analyzer instance
         generator = PythonSQLGenerator()
         
-        # FIXED: Use the first sample as the base structure WITHOUT sample prefixes
+        # ENHANCED: Use the first sample as the base structure
         base_json = json_samples[0]
-        combined_schema = generator.analyze_json_for_sql(base_json)  # NO parent_path!
+        combined_schema = generator.analyze_json_for_sql(base_json)
 
         # Process additional samples for enhanced metadata
         unique_structures = set()
@@ -244,8 +246,8 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
                 progress_percentage = 40 + (i / len(json_samples)) * 40
                 progress_bar.progress(int(progress_percentage))
 
-                # FIXED: Analyze additional samples WITHOUT adding sample prefix
-                sample_schema = generator.analyze_json_for_sql(json_sample)  # NO parent_path!
+                # ENHANCED: Analyze additional samples
+                sample_schema = generator.analyze_json_for_sql(json_sample)
 
                 # Track unique structures
                 structure_signature = str(sorted(sample_schema.keys()))
@@ -284,7 +286,7 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
                 continue
 
         progress_bar.progress(80)
-        status_text.text("✅ Finalizing schema analysis...")
+        status_text.text("✅ Finalizing schema analysis with disambiguation...")
 
         # Ensure all fields have proper metadata
         for path, details in combined_schema.items():
@@ -295,11 +297,15 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
             if 'frequency' not in details:
                 details['frequency'] = 1.0
 
+        # ENHANCED: Get disambiguation information
+        disambiguation_info = generator.get_field_disambiguation_info()
+        metadata['field_conflicts'] = len(disambiguation_info)
+        metadata['disambiguation_info'] = disambiguation_info
         metadata['unique_schemas'] = len(unique_structures)
         metadata['analysis_success'] = len(combined_schema) > 0
 
         progress_bar.progress(100)
-        status_text.text("✅ Schema analysis complete!")
+        status_text.text("✅ Schema analysis complete with disambiguation tracking!")
 
         # Clean up progress indicators
         import time
@@ -310,17 +316,27 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
         if not combined_schema:
             return None, "❌ No valid JSON schema could be extracted from database samples", metadata
 
-        # VERIFICATION: Check for sample prefixes and alert if found
+        # ENHANCED: Display disambiguation summary
+        if disambiguation_info:
+            st.warning(f"🚨 Found {len(disambiguation_info)} field names with multiple locations in your database JSON")
+            
+            with st.expander("🔍 Field Conflict Summary", expanded=False):
+                for field_name, conflict_data in disambiguation_info.items():
+                    st.markdown(f"**Field: `{field_name}`** ({conflict_data['conflict_count']} occurrences)")
+                    for i, option in enumerate(conflict_data['options'][:3]):
+                        status = "🎯 Recommended" if i == 0 else "⚪ Alternative"
+                        queryable = "✅" if option['queryable'] else "❌"
+                        st.markdown(f"- {status} `{option['full_path']}` ({option['hierarchy_description']}) - Queryable: {queryable}")
+        else:
+            st.success("🎯 No field name conflicts - all fields have unique names!")
+
+        # VERIFICATION: Check for any remaining issues
         sample_prefix_paths = [path for path in combined_schema.keys() if "sample_" in path]
         if sample_prefix_paths:
             st.error(f"🚨 **BUG DETECTED:** Found {len(sample_prefix_paths)} paths with 'sample_' prefixes!")
-            for path in sample_prefix_paths[:3]:  # Show first 3
-                st.code(f"❌ {path}", language="text")
+            return None, "Schema analysis contains invalid sample prefixes", metadata
         else:
-            st.success("🎯 **VERIFIED:** All JSON paths are clean (no 'sample_' prefixes)")
-            clean_paths = list(combined_schema.keys())[:5]  # Show first 5 paths
-            for path in clean_paths:
-                st.code(f"✅ {path}", language="text")
+            st.success("🎯 **VERIFIED:** All JSON paths are clean with disambiguation support")
 
         return combined_schema, None, metadata
 
@@ -334,11 +350,11 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
 def generate_database_driven_sql(conn_manager, table_name: str, json_column: str, 
                                field_conditions: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    FIXED UNIVERSAL database-driven SQL generation with proper alias management
+    ENHANCED UNIVERSAL database-driven SQL generation with disambiguation support
     """
     try:
-        # Step 1: Analyze JSON schema from database
-        st.info("🔍 **Step 1:** Analyzing JSON structure from your database...")
+        # Step 1: Analyze JSON schema from database with disambiguation
+        st.info("🔍 **Step 1:** Analyzing JSON structure with disambiguation tracking...")
 
         schema, schema_error, metadata = analyze_database_json_schema_universal(
             conn_manager, table_name, json_column, sample_size=10
@@ -347,11 +363,11 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
         if schema is None:
             return None, f"Schema analysis failed: {schema_error}"
 
-        # Display analysis results
-        st.success("✅ **Step 1 Complete:** JSON Schema Analysis (FIXED - No Sample Prefixes)")
+        # Display enhanced analysis results
+        st.success("✅ **Step 1 Complete:** Enhanced JSON Schema Analysis with Disambiguation")
 
-        # Show metrics
-        col1, col2, col3, col4 = st.columns(4)
+        # Show enhanced metrics
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             st.metric("📊 Records Sampled", metadata['sample_size'])
         with col2:
@@ -359,15 +375,18 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
         with col3:
             st.metric("🔄 Unique Structures", metadata['unique_schemas'])
         with col4:
+            conflict_indicator = f"🚨 {metadata['field_conflicts']}" if metadata['field_conflicts'] > 0 else "✅ 0"
+            st.metric("⚠️ Field Conflicts", conflict_indicator)
+        with col5:
             success_indicator = "✅" if metadata['analysis_success'] else "❌"
             st.metric("📈 Analysis Status", success_indicator)
 
         st.info(f"📋 **Analyzed Table:** `{metadata['resolved_table_name']}`")
 
-        # Step 2: Generate SQL using the FIXED logic
-        st.info("🔨 **Step 2:** Generating SQL with FIXED array flattening logic...")
+        # Step 2: Generate SQL using the ENHANCED logic with disambiguation
+        st.info("🔨 **Step 2:** Generating SQL with Enhanced Disambiguation Logic...")
 
-        # CRITICAL FIX: Use the FIXED SQL generator
+        # ENHANCED: Use the enhanced SQL generator with warnings
         from python_sql_generator import PythonSQLGenerator
         
         generator = PythonSQLGenerator()
@@ -375,15 +394,26 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
         # Use resolved table name
         resolved_table_name = metadata['resolved_table_name']
 
-        # FIXED: Use the same generate_dynamic_sql method that works in Python mode
-        generated_sql = generator.generate_dynamic_sql(
+        # ENHANCED: Generate SQL with warnings and disambiguation info
+        generated_sql, warnings = generator.generate_sql_with_warnings(
             resolved_table_name, json_column, field_conditions, schema
         )
+
+        # Display disambiguation warnings
+        if warnings:
+            st.markdown("#### 🔔 Disambiguation & Resolution Alerts")
+            for warning in warnings:
+                if warning.startswith('⚠️'):
+                    st.warning(warning)
+                elif warning.startswith('ℹ️'):
+                    st.info(warning)
+                else:
+                    st.info(warning)
 
         if generated_sql.strip().startswith("-- Error"):
             return None, f"SQL generation failed: {generated_sql}"
 
-        # VERIFICATION: Check generated SQL for sample prefixes and duplicate aliases
+        # ENHANCED VERIFICATION: Check generated SQL for issues
         issues_found = []
         
         if "sample_0" in generated_sql or "sample_1" in generated_sql:
@@ -406,66 +436,104 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
             st.code(generated_sql, language="sql")
             return None, f"Generated SQL has issues: {'; '.join(issues_found)}"
         else:
-            st.success("🎯 **VERIFIED:** Generated SQL is clean (no prefixes, no duplicate aliases)")
+            st.success("🎯 **VERIFIED:** Generated SQL is clean with disambiguation support")
 
-        st.success("✅ **Step 2 Complete:** Clean SQL Generated with FIXED Logic!")
+        # ENHANCED: Show disambiguation details if used
+        disambiguation_info = generator.get_field_disambiguation_info()
+        if disambiguation_info and warnings:
+            with st.expander("🔍 Field Resolution Details", expanded=False):
+                st.markdown("**Enhanced Disambiguation Summary:**")
+                conditions = [c.strip() for c in field_conditions.split(',')]
+                for condition in conditions:
+                    if condition:
+                        field_name = condition.split('[')[0].strip()
+                        simple_name = field_name.split('.')[-1]
+                        
+                        if simple_name in disambiguation_info:
+                            conflict_data = disambiguation_info[simple_name]
+                            st.markdown(f"**Field: `{field_name}`**")
+                            for opt in conflict_data['options']:
+                                status = "✅ Selected" if opt['full_path'] in generated_sql else "⏸️ Available"
+                                priority = "🎯 Recommended" if opt == conflict_data.get('recommended_option') else "⚪ Alternative"
+                                st.markdown(f"- {status} {priority} `{opt['full_path']}` ({opt['hierarchy_description']})")
+
+        st.success("✅ **Step 2 Complete:** Enhanced SQL Generated with Disambiguation Support!")
         
         return generated_sql, None
 
     except Exception as e:
-        logger.error(f"Database-driven analysis failed: {e}")
-        return None, f"❌ Database-driven analysis failed: {str(e)}"
+        logger.error(f"Enhanced database-driven analysis failed: {e}")
+        return None, f"❌ Enhanced database-driven analysis failed: {str(e)}"
 
 
-def generate_sql_from_json_python_mode_fixed(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> str:
+def generate_sql_from_json_python_mode_enhanced(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> Tuple[str, List[str]]:
     """
-    CRITICAL FIX: Python mode SQL generation with all variables properly defined
-    Fixes the 'json_column' not defined error and ensures clean SQL generation
+    ENHANCED: Python mode SQL generation with disambiguation support
+    Returns: (sql, warnings)
     """
     try:
-        # FIXED: Import the corrected SQL generator
+        # ENHANCED: Import the enhanced SQL generator
         from python_sql_generator import PythonSQLGenerator
         
         generator = PythonSQLGenerator()
         
-        # FIXED: Analyze JSON structure without sample prefixes
+        # ENHANCED: Analyze JSON structure with disambiguation
         schema = generator.analyze_json_for_sql(json_data)
         
         if not schema:
-            return "-- Error: Could not analyze JSON structure"
+            return "-- Error: Could not analyze JSON structure", ["❌ Schema analysis failed"]
         
-        # FIXED: Generate SQL with all parameters properly passed
-        generated_sql = generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
+        # ENHANCED: Generate SQL with warnings and disambiguation
+        generated_sql, warnings = generator.generate_sql_with_warnings(table_name, json_column, field_conditions, schema)
         
         # VERIFICATION: Check for issues
         if "sample_" in generated_sql:
-            return f"-- Error: Generated SQL contains sample prefixes:\n{generated_sql}"
+            return f"-- Error: Generated SQL contains sample prefixes:\n{generated_sql}", ["❌ SQL contains invalid prefixes"]
         
         if generated_sql.strip().startswith("-- Error"):
-            return generated_sql
+            return generated_sql, ["❌ SQL generation failed"]
             
-        return generated_sql
+        return generated_sql, warnings
         
     except Exception as e:
-        logger.error(f"Python mode SQL generation failed: {e}")
-        return f"-- Error in Python mode: {str(e)}"
+        logger.error(f"Enhanced Python mode SQL generation failed: {e}")
+        return f"-- Error in enhanced Python mode: {str(e)}", [f"❌ Generation error: {str(e)}"]
 
 
 def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
     """
-    Enhanced preview of the discovered JSON schema with VERIFICATION
+    Enhanced preview of the discovered JSON schema with disambiguation support
     """
-    st.markdown("### 📊 Discovered JSON Schema Analysis (FIXED Universal Version)")
+    st.markdown("### 📊 Enhanced JSON Schema Analysis with Disambiguation")
+
+    # ENHANCED: Show disambiguation summary first
+    disambiguation_info = metadata.get('disambiguation_info', {})
+    if disambiguation_info:
+        st.markdown("#### 🚨 Field Disambiguation Summary")
+        st.warning(f"Found {len(disambiguation_info)} field names appearing in multiple locations")
+        
+        # Quick disambiguation overview
+        for field_name, conflict_data in disambiguation_info.items():
+            with st.expander(f"🔍 Field: `{field_name}` ({conflict_data['conflict_count']} locations)", expanded=False):
+                recommended = conflict_data.get('recommended_option', {})
+                if recommended:
+                    st.success(f"🎯 **Recommended:** `{recommended.get('full_path', 'N/A')}` ({recommended.get('hierarchy_description', 'N/A')})")
+                
+                st.markdown("**All Options:**")
+                for i, opt in enumerate(conflict_data['options']):
+                    priority_icon = "🎯" if i == 0 else "⚪"
+                    queryable_icon = "✅" if opt['queryable'] else "❌"
+                    st.markdown(f"- {priority_icon} `{opt['full_path']}` - {opt['hierarchy_description']} - Queryable: {queryable_icon}")
 
     # VERIFICATION: Check for sample prefixes in schema
     sample_prefix_count = sum(1 for path in schema.keys() if "sample_" in path)
     if sample_prefix_count > 0:
         st.error(f"🚨 **BUG DETECTED:** {sample_prefix_count} paths contain 'sample_' prefixes!")
     else:
-        st.success("🎯 **VERIFIED:** All paths are clean (no sample prefixes)")
+        st.success("🎯 **VERIFIED:** All paths are clean with disambiguation support")
 
     # Create tabs for different views
-    tab1, tab2, tab3 = st.tabs(["🏷️ **Field Details**", "📊 **Frequency Chart**", "🔍 **Type Distribution**"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🏷️ **Field Details**", "📊 **Frequency Chart**", "🔍 **Type Distribution**", "⚠️ **Disambiguation Guide**"])
 
     with tab1:
         schema_summary = []
@@ -475,6 +543,7 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
             field_type = details.get('snowflake_type', 'VARIANT')
             sample_values = details.get('sample_values', ['N/A'])
             found_in = details.get('found_in_samples', 0)
+            hierarchy = details.get('hierarchy_level', 'Unknown')
 
             # Create readable sample values
             readable_samples = []
@@ -484,12 +553,18 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
                     val_str = val_str[:47] + "..."
                 readable_samples.append(val_str)
 
-            # VERIFICATION: Check for sample prefixes
-            path_status = "✅ Clean" if "sample_" not in path else "❌ Has Sample Prefix"
+            # Enhanced status with disambiguation info
+            path_status = "✅ Clean"
+            field_name = path.split('.')[-1]
+            if field_name in disambiguation_info:
+                conflict_count = disambiguation_info[field_name]['conflict_count']
+                path_status = f"⚠️ Conflicts ({conflict_count})"
 
             schema_summary.append({
                 'Field Path': path,
-                'Path Status': path_status,
+                'Field Name': field_name,
+                'Status': path_status,
+                'Hierarchy': hierarchy,
                 'Snowflake Type': field_type,
                 'Frequency': f"{frequency:.1%}",
                 'Found In Samples': f"{found_in}/{metadata['sample_size']}",
@@ -501,19 +576,30 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
         import pandas as pd
         schema_df = pd.DataFrame(schema_summary)
 
-        # Add search functionality
+        # Add enhanced search functionality
         search_term = st.text_input("🔍 Search fields:", placeholder="Type to filter fields...")
         if search_term:
             schema_df = schema_df[schema_df['Field Path'].str.contains(search_term, case=False, na=False)]
 
+        # Filter options
+        col_filter1, col_filter2 = st.columns(2)
+        with col_filter1:
+            show_conflicts_only = st.checkbox("Show only conflicted fields", value=False)
+            if show_conflicts_only:
+                schema_df = schema_df[schema_df['Status'].str.contains('Conflicts')]
+        with col_filter2:
+            show_queryable_only = st.checkbox("Show only queryable fields", value=False)
+            if show_queryable_only:
+                schema_df = schema_df[schema_df['Queryable'] == '✅']
+
         st.dataframe(schema_df, use_container_width=True, height=400)
 
-        # Export option
+        # Enhanced export option
         csv_data = schema_df.to_csv(index=False).encode('utf-8')
         st.download_button(
-            "📥 Export Schema Analysis",
+            "📥 Export Enhanced Schema Analysis",
             data=csv_data,
-            file_name=f"json_schema_analysis_FIXED_{metadata['table_name']}_{metadata['json_column']}.csv",
+            file_name=f"enhanced_json_schema_analysis_{metadata['table_name']}_{metadata['json_column']}.csv",
             mime="text/csv"
         )
 
@@ -550,17 +636,62 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
             type_df['Percentage'] = type_df['Percentage'].astype(str) + '%'
             st.dataframe(type_df, use_container_width=True)
 
+    with tab4:
+        # Enhanced disambiguation guide
+        st.markdown("#### 🎯 Smart Field Resolution Guide")
+        
+        if disambiguation_info:
+            st.markdown("**How to handle field conflicts in your queries:**")
+            
+            for field_name, conflict_data in disambiguation_info.items():
+                st.markdown(f"**Field: `{field_name}`**")
+                
+                col_guide1, col_guide2 = st.columns(2)
+                
+                with col_guide1:
+                    st.markdown("**❌ Ambiguous (auto-resolved):**")
+                    st.code(f"{field_name}", language="text")
+                    recommended = conflict_data.get('recommended_option', {})
+                    if recommended:
+                        st.caption(f"→ Resolves to: {recommended.get('full_path', 'N/A')}")
+                
+                with col_guide2:
+                    st.markdown("**✅ Explicit (recommended):**")
+                    for opt in conflict_data['options'][:2]:
+                        if opt['queryable']:
+                            st.code(f"{opt['full_path']}", language="text")
+                            st.caption(f"→ {opt['hierarchy_description']}")
+                
+                st.markdown("---")
+                
+            st.info("💡 **Tip:** Always use explicit paths (like `company.name`) instead of simple field names (like `name`) to avoid ambiguity.")
+        else:
+            st.success("🎉 **No field conflicts detected!** You can use simple field names without ambiguity.")
+            
+            # Show some example fields
+            example_fields = [path for path, details in schema.items() if details.get('is_queryable', False)][:5]
+            if example_fields:
+                st.markdown("**Example queryable fields:**")
+                for field in example_fields:
+                    st.code(field, language="text")
 
-def render_enhanced_field_suggestions(schema: Dict) -> List[str]:
+
+def render_enhanced_field_suggestions(schema: Dict, disambiguation_info: Dict = None) -> List[str]:
     """
-    Generate intelligent field suggestions (with clean paths)
+    Generate intelligent field suggestions with disambiguation awareness
     """
     suggestions = []
 
-    # Categorize fields
+    # Categorize fields with disambiguation awareness
     high_frequency_fields = []
     categorical_fields = []
     numeric_fields = []
+    conflicted_fields = set()
+
+    # Track conflicted field names
+    if disambiguation_info:
+        for field_name, conflict_data in disambiguation_info.items():
+            conflicted_fields.add(field_name)
 
     for path, details in schema.items():
         # Skip any paths with sample prefixes
@@ -571,56 +702,85 @@ def render_enhanced_field_suggestions(schema: Dict) -> List[str]:
         field_type = details.get('snowflake_type', 'VARIANT')
         sample_values = details.get('sample_values', [])
         is_queryable = details.get('is_queryable', False)
+        field_name = path.split('.')[-1]
 
         if not is_queryable:
             continue
 
+        # For conflicted fields, always use full path
+        suggestion_path = path if field_name in conflicted_fields else path
+
         if frequency > 0.7:
-            high_frequency_fields.append((path, details))
+            high_frequency_fields.append((suggestion_path, details))
 
         if field_type in ['VARCHAR', 'STRING'] and sample_values:
             unique_vals = list(set([str(v) for v in sample_values]))
             if len(unique_vals) <= 3 and all(len(str(v)) < 20 for v in unique_vals):
-                categorical_fields.append((path, unique_vals))
+                categorical_fields.append((suggestion_path, unique_vals))
 
         if field_type in ['NUMBER', 'INTEGER'] and sample_values:
-            numeric_fields.append((path, details))
+            numeric_fields.append((suggestion_path, details))
 
-    # Generate suggestions
+    # Generate enhanced suggestions with disambiguation awareness
 
-    # High frequency fields
+    # High frequency fields (always use full path for conflicted fields)
     for path, details in high_frequency_fields[:3]:
-        suggestions.append(f"{path}[IS NOT NULL]")
+        field_name = path.split('.')[-1]
+        if field_name in conflicted_fields:
+            suggestions.append(f"{path}[IS NOT NULL]  # Using full path to avoid ambiguity")
+        else:
+            suggestions.append(f"{path}[IS NOT NULL]")
 
     # Categorical fields
     for path, unique_vals in categorical_fields[:3]:
+        field_name = path.split('.')[-1]
         if len(unique_vals) > 1:
-            suggestions.append(f"{path}[IN:{' | '.join(unique_vals)}]")
+            if field_name in conflicted_fields:
+                suggestions.append(f"{path}[IN:{' | '.join(unique_vals)}]  # Full path used")
+            else:
+                suggestions.append(f"{path}[IN:{' | '.join(unique_vals)}]")
         else:
-            suggestions.append(f"{path}[=:{unique_vals[0]}]")
+            if field_name in conflicted_fields:
+                suggestions.append(f"{path}[=:{unique_vals[0]}]  # Full path used")
+            else:
+                suggestions.append(f"{path}[=:{unique_vals[0]}]")
 
     # Numeric fields
     for path, details in numeric_fields[:2]:
+        field_name = path.split('.')[-1]
         sample_values = details.get('sample_values', [])
         try:
             numeric_vals = [float(v) for v in sample_values if str(v).replace('.', '').replace('-', '').isdigit()]
             if numeric_vals:
                 avg_val = sum(numeric_vals) / len(numeric_vals)
-                suggestions.append(f"{path}[>:{avg_val:.0f}]")
+                if field_name in conflicted_fields:
+                    suggestions.append(f"{path}[>:{avg_val:.0f}]  # Full path used")
+                else:
+                    suggestions.append(f"{path}[>:{avg_val:.0f}]")
         except:
-            suggestions.append(f"{path}[IS NOT NULL]")
+            if field_name in conflicted_fields:
+                suggestions.append(f"{path}[IS NOT NULL]  # Full path used")
+            else:
+                suggestions.append(f"{path}[IS NOT NULL]")
 
-    # Combinations
+    # Enhanced combinations with disambiguation awareness
     if len(high_frequency_fields) >= 2:
         field1, field2 = high_frequency_fields[0][0], high_frequency_fields[1][0]
         suggestions.append(f"{field1}[IS NOT NULL], {field2}[IS NOT NULL]")
 
-    return suggestions[:8]
+    # Add disambiguation examples if conflicts exist
+    if disambiguation_info:
+        conflict_example = list(disambiguation_info.keys())[0]
+        options = disambiguation_info[conflict_example]['options'][:2]
+        suggestions.append(f"# Disambiguation example:")
+        suggestions.append(f"{', '.join([opt['full_path'] for opt in options if opt['queryable']])}")
+
+    return suggestions[:10]
 
 
 def test_database_connectivity(conn_manager) -> Tuple[bool, str]:
     """
-    Test database connectivity with diagnostics
+    Test database connectivity with enhanced diagnostics
     """
     if not conn_manager.is_connected:
         return False, "❌ Not connected to database"
@@ -636,12 +796,13 @@ def test_database_connectivity(conn_manager) -> Tuple[bool, str]:
             user = row.iloc[2] if row.iloc[2] else "Unknown"
             role = row.iloc[3] if row.iloc[3] else "Default"
 
-            status_msg = f"""✅ **Database Connection Status:**
+            status_msg = f"""✅ **Enhanced Database Connection Status:**
 - **Database:** {database}
 - **Schema:** {schema}  
 - **User:** {user}
 - **Role:** {role}
-- **Status:** Connected and Ready
+- **Features:** Enhanced SQL Generation with Disambiguation
+- **Status:** Connected and Ready for Smart Analysis
 """
             return True, status_msg
         else:
@@ -651,14 +812,60 @@ def test_database_connectivity(conn_manager) -> Tuple[bool, str]:
         return False, f"❌ Connection test error: {str(e)}"
 
 
+def render_disambiguation_helper_ui(field_conditions: str, disambiguation_info: Dict):
+    """
+    Render UI helper for field disambiguation
+    """
+    if not disambiguation_info:
+        return
+    
+    st.markdown("#### 🎯 Smart Field Helper")
+    
+    # Parse current field conditions
+    conditions = [c.strip() for c in field_conditions.split(',') if c.strip()]
+    
+    # Check for potential ambiguity
+    potentially_ambiguous = []
+    for condition in conditions:
+        field_name = condition.split('[')[0].strip()
+        simple_field_name = field_name.split('.')[-1]
+        
+        if simple_field_name in disambiguation_info and field_name == simple_field_name:
+            potentially_ambiguous.append((condition, simple_field_name))
+    
+    if potentially_ambiguous:
+        st.warning("⚠️ Some fields may be ambiguous. Consider using explicit paths:")
+        
+        for condition, simple_name in potentially_ambiguous:
+            conflict_data = disambiguation_info[simple_name]
+            st.markdown(f"**Field `{simple_name}` in condition `{condition}`:**")
+            
+            cols = st.columns(len(conflict_data['options']) + 1)
+            
+            with cols[0]:
+                st.markdown("**Options:**")
+            
+            for i, option in enumerate(conflict_data['options'][:3]):
+                if option['queryable']:
+                    with cols[i + 1]:
+                        priority = "🎯 Recommended" if i == 0 else f"⚪ Option {i + 1}"
+                        if st.button(f"{priority}\n`{option['full_path']}`", key=f"disambig_{simple_name}_{i}"):
+                            # Replace the ambiguous condition with explicit path
+                            new_condition = condition.replace(simple_name, option['full_path'])
+                            new_conditions = [new_condition if c == condition else c for c in conditions]
+                            st.session_state.unified_field_conditions = ', '.join(new_conditions)
+                            st.rerun()
+                        st.caption(option['hierarchy_description'])
+
+
 # Enhanced version aliases for backward compatibility
 def generate_database_driven_sql_enhanced(conn_manager, table_name: str, json_column: str, 
                                         field_conditions: str) -> Tuple[Optional[str], Optional[str]]:
-    """Enhanced version that's now just an alias to the universal FIXED version"""
+    """Enhanced version that's now the main implementation"""
     return generate_database_driven_sql(conn_manager, table_name, json_column, field_conditions)
 
 
 def analyze_database_json_schema_enhanced(conn_manager, table_name: str, json_column: str, 
                                         sample_size: int = 10) -> Tuple[Optional[Dict], Optional[str], Dict]:
-    """Enhanced version that's now just an alias to the universal FIXED version"""
+    """Enhanced version that's now the main implementation"""
     return analyze_database_json_schema_universal(conn_manager, table_name, json_column, sample_size)
