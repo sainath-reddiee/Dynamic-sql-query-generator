@@ -660,7 +660,7 @@ def main():
                         from python_sql_generator import PythonSQLGenerator
                         temp_generator = PythonSQLGenerator()
                         temp_schema = temp_generator.analyze_json_for_sql(json_data)
-                        disambiguation_info = temp_generator.get_field_disambiguation_info()
+                        disambiguation_info = temp_generator.get_multi_level_field_info()
 
                         # Show disambiguation alerts if conflicts exist
                         if disambiguation_info:
@@ -668,16 +668,15 @@ def main():
 
                             conflict_summary = []
                             for field_name, conflict_data in disambiguation_info.items():
-                                conflict_count = conflict_data['conflict_count']
-                                options = conflict_data['options']
-                                queryable_options = [opt for opt in options if opt['queryable']]
+                                conflict_count = conflict_data['total_occurrences']
+                                paths = conflict_data['paths']
+                                queryable_options = [opt for opt in paths if opt['schema_entry']['is_queryable']]
 
                                 conflict_summary.append({
                                     'Field Name': field_name,
                                     'Conflict Count': conflict_count,
                                     'Queryable Options': len(queryable_options),
                                     'Paths': ' | '.join([opt['full_path'] for opt in queryable_options[:3]]),
-                                    'Recommended': conflict_data.get('recommended_option', {}).get('full_path', 'N/A')
                                 })
 
                             if conflict_summary:
@@ -718,7 +717,7 @@ def main():
                                             'Field Path': path,
                                             'Type': details.get('snowflake_type', 'VARIANT'),
                                             'Sample': str(details.get('sample_value', ''))[:50] + ('...' if len(str(details.get('sample_value', ''))) > 50 else ''),
-                                            'Context': details.get('hierarchy_level', 'Root')
+                                            'Context': details.get('context_description', 'Root')
                                         }
                                         queryable_fields_list.append(field_info)
 
@@ -775,7 +774,7 @@ def main():
                                 # Show disambiguation examples if conflicts exist
                                 if disambiguation_info:
                                     conflict_field = list(disambiguation_info.keys())[0]
-                                    options = disambiguation_info[conflict_field]['options'][:2]
+                                    options = disambiguation_info[conflict_field]['paths'][:2]
                                     st.markdown("**🚨 Disambiguation Examples:**")
                                     st.code(f"# Ambiguous (auto-resolved)\n{conflict_field}", language="text")
                                     st.code(f"# Explicit paths\n{', '.join([opt['full_path'] for opt in options])}", language="text")
@@ -830,9 +829,9 @@ def main():
                                                 if simple_name in disambiguation_details:
                                                     conflict_data = disambiguation_details[simple_name]
                                                     st.markdown(f"**{field_name}:**")
-                                                    for opt in conflict_data['options']:
+                                                    for opt in conflict_data['paths']:
                                                         status = "✅ Used" if opt['full_path'] in sql else "⏸️ Available"
-                                                        st.markdown(f"- {status} `{opt['full_path']}` ({opt['hierarchy_description']})")
+                                                        st.markdown(f"- {status} `{opt['full_path']}` ({opt['context_description']})")
                         else:
                             st.warning("Please fill in all required fields marked with *.")
 
