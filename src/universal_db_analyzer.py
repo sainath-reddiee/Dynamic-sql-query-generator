@@ -7,14 +7,11 @@ logger = logging.getLogger(__name__)
 
 
 def execute_custom_sql_query(conn_manager, custom_query: str) -> Tuple[Optional[Any], Optional[str]]:
-    """
-    MOVED TO TOP: Execute custom SQL queries (helpful for listing tables, etc.)
-    """
+    """Execute custom SQL queries (helpful for listing tables, etc.)"""
     if not conn_manager.is_connected:
         return None, "❌ Not connected to database"
 
     try:
-        # Handle enhanced connectors with session context
         if hasattr(conn_manager, 'ensure_session_context'):
             if not conn_manager.ensure_session_context():
                 return None, "❌ Failed to establish database session context"
@@ -37,9 +34,7 @@ def execute_custom_sql_query(conn_manager, custom_query: str) -> Tuple[Optional[
 
 
 def list_available_tables(conn_manager) -> Tuple[Optional[List[str]], Optional[str]]:
-    """
-    Helper function to list available tables using custom SQL
-    """
+    """Helper function to list available tables using custom SQL"""
     list_tables_query = """
     SELECT 
         TABLE_CATALOG as DATABASE_NAME,
@@ -57,7 +52,6 @@ def list_available_tables(conn_manager) -> Tuple[Optional[List[str]], Optional[s
     if result_df is None:
         return None, error
     
-    # Format table names with full qualification
     table_list = []
     for _, row in result_df.iterrows():
         db = row.get('DATABASE_NAME', '')
@@ -73,22 +67,17 @@ def list_available_tables(conn_manager) -> Tuple[Optional[List[str]], Optional[s
 
 def sample_json_from_database(conn_manager, table_name: str, json_column: str, 
                             sample_size: int = 5) -> Tuple[Optional[List[Dict]], Optional[str]]:
-    """
-    Universal JSON sampling that works with both standard and enhanced connectors
-    """
+    """Universal JSON sampling that works with both standard and enhanced connectors"""
     if not conn_manager.is_connected:
         return None, "❌ Not connected to database"
 
     try:
-        # Handle enhanced connectors with session context
         if hasattr(conn_manager, 'ensure_session_context'):
             if not conn_manager.ensure_session_context():
                 return None, "❌ Failed to establish database session context"
 
-        # Smart table name resolution
         resolved_table_name = resolve_table_name_universal(conn_manager, table_name)
 
-        # Query to sample JSON data
         sample_query = f"""
         SELECT {json_column}
         FROM {resolved_table_name}
@@ -108,7 +97,6 @@ def sample_json_from_database(conn_manager, table_name: str, json_column: str,
         if result_df.empty:
             return None, f"❌ No data found in {resolved_table_name}.{json_column}. Check if the column contains non-null values."
 
-        # Extract and parse JSON data
         json_samples = []
         parsing_errors = 0
 
@@ -117,7 +105,6 @@ def sample_json_from_database(conn_manager, table_name: str, json_column: str,
 
             if json_value is not None:
                 try:
-                    # Handle different JSON storage formats
                     if isinstance(json_value, str):
                         parsed_json = json.loads(json_value)
                     elif isinstance(json_value, dict):
@@ -138,7 +125,6 @@ def sample_json_from_database(conn_manager, table_name: str, json_column: str,
             else:
                 return None, f"❌ No valid JSON found in sampled records from {resolved_table_name}.{json_column}"
 
-        # Report success
         if parsing_errors > 0:
             st.warning(f"⚠️ {parsing_errors} rows had JSON parsing issues, but {len(json_samples)} were successfully parsed.")
         else:
@@ -149,7 +135,6 @@ def sample_json_from_database(conn_manager, table_name: str, json_column: str,
     except Exception as e:
         error_msg = str(e)
 
-        # Provide specific error guidance
         if "does not have a current database" in error_msg:
             return None, "❌ Database context error. Try disconnecting and reconnecting with proper database/schema settings."
         elif "does not exist" in error_msg:
@@ -163,23 +148,16 @@ def sample_json_from_database(conn_manager, table_name: str, json_column: str,
 
 
 def resolve_table_name_universal(conn_manager, table_name: str) -> str:
-    """
-    Universal table name resolution that works with both connector types
-    """
-    # If already fully qualified, return as-is
+    """Universal table name resolution that works with both connector types"""
     if table_name.count('.') == 2:
         return table_name
 
-    # Get connection parameters
     database = conn_manager.connection_params.get('database', '')
     schema = conn_manager.connection_params.get('schema', 'PUBLIC')
 
-    # Handle different cases
     if '.' not in table_name:
-        # Just table name provided
         return f"{database}.{schema}.{table_name}"
     elif table_name.count('.') == 1:
-        # schema.table provided, add database
         return f"{database}.{table_name}"
     else:
         return table_name
@@ -187,9 +165,7 @@ def resolve_table_name_universal(conn_manager, table_name: str) -> str:
 
 def analyze_database_json_schema_universal(conn_manager, table_name: str, json_column: str, 
                                          sample_size: int = 10) -> Tuple[Optional[Dict], Optional[str], Dict]:
-    """
-    ENHANCED UNIVERSAL JSON schema analysis with disambiguation support
-    """
+    """ENHANCED UNIVERSAL JSON schema analysis with multi-level field support"""
     metadata = {
         'table_name': table_name,
         'json_column': json_column,
@@ -197,16 +173,14 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
         'unique_schemas': 0,
         'analysis_success': False,
         'resolved_table_name': resolve_table_name_universal(conn_manager, table_name),
-        'field_conflicts': 0,
-        'disambiguation_info': {}
+        'multi_level_fields': 0,
+        'multi_level_info': {}
     }
 
-    # Create progress tracking
     progress_bar = st.progress(0)
     status_text = st.empty()
 
     try:
-        # Step 1: Sample JSON data from database
         status_text.text("🔍 Sampling JSON data from database...")
         progress_bar.progress(20)
 
@@ -222,41 +196,29 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
         metadata['sample_size'] = len(json_samples)
         progress_bar.progress(40)
 
-        # Step 2: Analyze JSON structure using the ENHANCED SQL generator logic
-        status_text.text("🔬 Analyzing JSON structure with disambiguation tracking...")
+        status_text.text("🔬 Analyzing JSON structure with multi-level field detection...")
 
-        # ENHANCED: Import the enhanced SQL generator
         from python_sql_generator import PythonSQLGenerator
 
-        # Create analyzer instance
         generator = PythonSQLGenerator()
-        
-        # ENHANCED: Use the first sample as the base structure
         base_json = json_samples[0]
         combined_schema = generator.analyze_json_for_sql(base_json)
 
-        # Process additional samples for enhanced metadata
         unique_structures = set()
         structure_signature = str(sorted(combined_schema.keys()))
         unique_structures.add(structure_signature)
 
         for i, json_sample in enumerate(json_samples[1:], 1):
             try:
-                # Update progress
                 progress_percentage = 40 + (i / len(json_samples)) * 40
                 progress_bar.progress(int(progress_percentage))
 
-                # ENHANCED: Analyze additional samples
                 sample_schema = generator.analyze_json_for_sql(json_sample)
-
-                # Track unique structures
                 structure_signature = str(sorted(sample_schema.keys()))
                 unique_structures.add(structure_signature)
 
-                # Merge schemas for enhanced metadata
                 for path, details in sample_schema.items():
                     if path in combined_schema:
-                        # Handle type conflicts
                         existing_type = combined_schema[path].get('type')
                         current_type = details.get('type')
 
@@ -265,19 +227,16 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
                             combined_schema[path]['snowflake_type'] = 'VARIANT'
                             combined_schema[path]['has_type_conflicts'] = True
 
-                        # Track sample values
                         existing_samples = combined_schema[path].get('sample_values', [])
                         new_sample = details.get('sample_value', '')
                         if new_sample not in existing_samples:
                             existing_samples.append(new_sample)
                             combined_schema[path]['sample_values'] = existing_samples[:5]
                     else:
-                        # New field found
                         combined_schema[path] = details.copy()
                         combined_schema[path]['sample_values'] = [details.get('sample_value', '')]
                         combined_schema[path]['found_in_samples'] = 1
 
-                    # Track frequency across samples
                     combined_schema[path]['found_in_samples'] = combined_schema[path].get('found_in_samples', 0) + 1
                     combined_schema[path]['frequency'] = combined_schema[path]['found_in_samples'] / len(json_samples)
 
@@ -286,9 +245,8 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
                 continue
 
         progress_bar.progress(80)
-        status_text.text("✅ Finalizing schema analysis with disambiguation...")
+        status_text.text("✅ Finalizing schema analysis with multi-level field detection...")
 
-        # Ensure all fields have proper metadata
         for path, details in combined_schema.items():
             if 'sample_values' not in details:
                 details['sample_values'] = [details.get('sample_value', '')]
@@ -297,17 +255,15 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
             if 'frequency' not in details:
                 details['frequency'] = 1.0
 
-        # ENHANCED: Get disambiguation information
-        disambiguation_info = generator.get_field_disambiguation_info()
-        metadata['field_conflicts'] = len(disambiguation_info)
-        metadata['disambiguation_info'] = disambiguation_info
+        multi_level_info = generator.get_multi_level_field_info()
+        metadata['multi_level_fields'] = len(multi_level_info)
+        metadata['multi_level_info'] = multi_level_info
         metadata['unique_schemas'] = len(unique_structures)
         metadata['analysis_success'] = len(combined_schema) > 0
 
         progress_bar.progress(100)
-        status_text.text("✅ Schema analysis complete with disambiguation tracking!")
+        status_text.text("✅ Schema analysis complete with multi-level field detection!")
 
-        # Clean up progress indicators
         import time
         time.sleep(1)
         progress_bar.empty()
@@ -316,27 +272,16 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
         if not combined_schema:
             return None, "❌ No valid JSON schema could be extracted from database samples", metadata
 
-        # ENHANCED: Display disambiguation summary
-        if disambiguation_info:
-            st.warning(f"🚨 Found {len(disambiguation_info)} field names with multiple locations in your database JSON")
+        if multi_level_info:
+            st.success(f"🎯 Found {len(multi_level_info)} fields appearing at multiple levels - users can now specify simple field names!")
             
-            with st.expander("🔍 Field Conflict Summary", expanded=False):
-                for field_name, conflict_data in disambiguation_info.items():
-                    st.markdown(f"**Field: `{field_name}`** ({conflict_data['conflict_count']} occurrences)")
-                    for i, option in enumerate(conflict_data['options'][:3]):
-                        status = "🎯 Recommended" if i == 0 else "⚪ Alternative"
-                        queryable = "✅" if option['queryable'] else "❌"
-                        st.markdown(f"- {status} `{option['full_path']}` ({option['hierarchy_description']}) - Queryable: {queryable}")
+            with st.expander("🔍 Multi-Level Field Summary", expanded=False):
+                for field_name, field_data in multi_level_info.items():
+                    st.markdown(f"**Field: `{field_name}`** ({field_data['total_occurrences']} locations)")
+                    for path_info in field_data['paths']:
+                        st.markdown(f"- `{path_info['full_path']}` → alias: `{path_info['alias']}` ({path_info['context_description']})")
         else:
-            st.success("🎯 No field name conflicts - all fields have unique names!")
-
-        # VERIFICATION: Check for any remaining issues
-        sample_prefix_paths = [path for path in combined_schema.keys() if "sample_" in path]
-        if sample_prefix_paths:
-            st.error(f"🚨 **BUG DETECTED:** Found {len(sample_prefix_paths)} paths with 'sample_' prefixes!")
-            return None, "Schema analysis contains invalid sample prefixes", metadata
-        else:
-            st.success("🎯 **VERIFIED:** All JSON paths are clean with disambiguation support")
+            st.info("ℹ️ All fields have unique names - no multi-level detection needed")
 
         return combined_schema, None, metadata
 
@@ -349,12 +294,9 @@ def analyze_database_json_schema_universal(conn_manager, table_name: str, json_c
 
 def generate_database_driven_sql(conn_manager, table_name: str, json_column: str, 
                                field_conditions: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    ENHANCED UNIVERSAL database-driven SQL generation with disambiguation support
-    """
+    """ENHANCED UNIVERSAL database-driven SQL generation with multi-level field support"""
     try:
-        # Step 1: Analyze JSON schema from database with disambiguation
-        st.info("🔍 **Step 1:** Analyzing JSON structure with disambiguation tracking...")
+        st.info("🔍 **Step 1:** Analyzing JSON structure with multi-level field detection...")
 
         schema, schema_error, metadata = analyze_database_json_schema_universal(
             conn_manager, table_name, json_column, sample_size=10
@@ -363,10 +305,8 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
         if schema is None:
             return None, f"Schema analysis failed: {schema_error}"
 
-        # Display enhanced analysis results
-        st.success("✅ **Step 1 Complete:** Enhanced JSON Schema Analysis with Disambiguation")
+        st.success("✅ **Step 1 Complete:** Enhanced JSON Schema Analysis with Multi-Level Support")
 
-        # Show enhanced metrics
         col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             st.metric("📊 Records Sampled", metadata['sample_size'])
@@ -375,89 +315,59 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
         with col3:
             st.metric("🔄 Unique Structures", metadata['unique_schemas'])
         with col4:
-            conflict_indicator = f"🚨 {metadata['field_conflicts']}" if metadata['field_conflicts'] > 0 else "✅ 0"
-            st.metric("⚠️ Field Conflicts", conflict_indicator)
+            multi_indicator = f"✅ {metadata['multi_level_fields']}" if metadata['multi_level_fields'] > 0 else "➖ 0"
+            st.metric("🎯 Multi-Level Fields", multi_indicator)
         with col5:
             success_indicator = "✅" if metadata['analysis_success'] else "❌"
             st.metric("📈 Analysis Status", success_indicator)
 
         st.info(f"📋 **Analyzed Table:** `{metadata['resolved_table_name']}`")
 
-        # Step 2: Generate SQL using the ENHANCED logic with disambiguation
-        st.info("🔨 **Step 2:** Generating SQL with Enhanced Disambiguation Logic...")
+        st.info("🔨 **Step 2:** Generating SQL with Multi-Level Field Support...")
 
-        # ENHANCED: Use the enhanced SQL generator with warnings
         from python_sql_generator import PythonSQLGenerator
         
         generator = PythonSQLGenerator()
-
-        # Use resolved table name
         resolved_table_name = metadata['resolved_table_name']
 
-        # ENHANCED: Generate SQL with warnings and disambiguation info
         generated_sql, warnings = generator.generate_sql_with_warnings(
             resolved_table_name, json_column, field_conditions, schema
         )
 
-        # Display disambiguation warnings
         if warnings:
-            st.markdown("#### 🔔 Disambiguation & Resolution Alerts")
+            st.markdown("#### 🔔 Multi-Level Field Resolution Alerts")
             for warning in warnings:
-                if warning.startswith('⚠️'):
-                    st.warning(warning)
-                elif warning.startswith('ℹ️'):
+                if warning.startswith('✅'):
+                    st.success(warning)
+                elif warning.startswith('🎯'):
                     st.info(warning)
+                elif warning.startswith('⚠️'):
+                    st.warning(warning)
                 else:
                     st.info(warning)
 
         if generated_sql.strip().startswith("-- Error"):
             return None, f"SQL generation failed: {generated_sql}"
 
-        # ENHANCED VERIFICATION: Check generated SQL for issues
-        issues_found = []
-        
-        if "sample_0" in generated_sql or "sample_1" in generated_sql:
-            issues_found.append("Contains 'sample_' prefixes")
-            
-        # Check for duplicate LATERAL FLATTEN aliases
-        lateral_flattens = [line for line in generated_sql.split('\n') if 'LATERAL FLATTEN' in line]
-        flatten_aliases = []
-        for line in lateral_flattens:
-            if ') f' in line:
-                alias = line.split(') f')[1].split()[0]
-                flatten_aliases.append(alias)
-        
-        duplicate_aliases = [alias for alias in set(flatten_aliases) if flatten_aliases.count(alias) > 1]
-        if duplicate_aliases:
-            issues_found.append(f"Duplicate aliases: {duplicate_aliases}")
-
-        if issues_found:
-            st.error(f"🚨 **SQL ISSUES DETECTED:** {'; '.join(issues_found)}")
-            st.code(generated_sql, language="sql")
-            return None, f"Generated SQL has issues: {'; '.join(issues_found)}"
-        else:
-            st.success("🎯 **VERIFIED:** Generated SQL is clean with disambiguation support")
-
-        # ENHANCED: Show disambiguation details if used
-        disambiguation_info = generator.get_field_disambiguation_info()
-        if disambiguation_info and warnings:
-            with st.expander("🔍 Field Resolution Details", expanded=False):
-                st.markdown("**Enhanced Disambiguation Summary:**")
+        multi_level_info = generator.get_multi_level_field_info()
+        if multi_level_info and warnings:
+            with st.expander("🔍 Multi-Level Field Expansion Details", expanded=False):
+                st.markdown("**How simple field names were expanded:**")
                 conditions = [c.strip() for c in field_conditions.split(',')]
                 for condition in conditions:
                     if condition:
                         field_name = condition.split('[')[0].strip()
                         simple_name = field_name.split('.')[-1]
                         
-                        if simple_name in disambiguation_info:
-                            conflict_data = disambiguation_info[simple_name]
-                            st.markdown(f"**Field: `{field_name}`**")
-                            for opt in conflict_data['options']:
-                                status = "✅ Selected" if opt['full_path'] in generated_sql else "⏸️ Available"
-                                priority = "🎯 Recommended" if opt == conflict_data.get('recommended_option') else "⚪ Alternative"
-                                st.markdown(f"- {status} {priority} `{opt['full_path']}` ({opt['hierarchy_description']})")
+                        if simple_name in multi_level_info:
+                            field_data = multi_level_info[simple_name]
+                            st.markdown(f"**Input: `{field_name}`**")
+                            st.markdown(f"**Expanded to {field_data['total_occurrences']} columns:**")
+                            for path_info in field_data['paths']:
+                                status = "✅ Included" if path_info['full_path'] in generated_sql else "⏸️ Available"
+                                st.markdown(f"- {status} `{path_info['full_path']}` → `{path_info['alias']}`")
 
-        st.success("✅ **Step 2 Complete:** Enhanced SQL Generated with Disambiguation Support!")
+        st.success("✅ **Step 2 Complete:** Enhanced SQL Generated with Multi-Level Field Support!")
         
         return generated_sql, None
 
@@ -467,28 +377,17 @@ def generate_database_driven_sql(conn_manager, table_name: str, json_column: str
 
 
 def generate_sql_from_json_python_mode_enhanced(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> Tuple[str, List[str]]:
-    """
-    ENHANCED: Python mode SQL generation with disambiguation support
-    Returns: (sql, warnings)
-    """
+    """ENHANCED: Python mode SQL generation with multi-level field support"""
     try:
-        # ENHANCED: Import the enhanced SQL generator
         from python_sql_generator import PythonSQLGenerator
         
         generator = PythonSQLGenerator()
-        
-        # ENHANCED: Analyze JSON structure with disambiguation
         schema = generator.analyze_json_for_sql(json_data)
         
         if not schema:
             return "-- Error: Could not analyze JSON structure", ["❌ Schema analysis failed"]
         
-        # ENHANCED: Generate SQL with warnings and disambiguation
         generated_sql, warnings = generator.generate_sql_with_warnings(table_name, json_column, field_conditions, schema)
-        
-        # VERIFICATION: Check for issues
-        if "sample_" in generated_sql:
-            return f"-- Error: Generated SQL contains sample prefixes:\n{generated_sql}", ["❌ SQL contains invalid prefixes"]
         
         if generated_sql.strip().startswith("-- Error"):
             return generated_sql, ["❌ SQL generation failed"]
@@ -501,39 +400,24 @@ def generate_sql_from_json_python_mode_enhanced(json_data: Any, table_name: str,
 
 
 def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
-    """
-    Enhanced preview of the discovered JSON schema with disambiguation support
-    """
-    st.markdown("### 📊 Enhanced JSON Schema Analysis with Disambiguation")
+    """Enhanced preview of the discovered JSON schema with multi-level field support"""
+    st.markdown("### 📊 Enhanced JSON Schema Analysis with Multi-Level Fields")
 
-    # ENHANCED: Show disambiguation summary first
-    disambiguation_info = metadata.get('disambiguation_info', {})
-    if disambiguation_info:
-        st.markdown("#### 🚨 Field Disambiguation Summary")
-        st.warning(f"Found {len(disambiguation_info)} field names appearing in multiple locations")
+    multi_level_info = metadata.get('multi_level_info', {})
+    if multi_level_info:
+        st.markdown("#### 🎯 Multi-Level Field Summary")
+        st.success(f"Found {len(multi_level_info)} field names appearing in multiple locations")
         
-        # Quick disambiguation overview
-        for field_name, conflict_data in disambiguation_info.items():
-            with st.expander(f"🔍 Field: `{field_name}` ({conflict_data['conflict_count']} locations)", expanded=False):
-                recommended = conflict_data.get('recommended_option', {})
-                if recommended:
-                    st.success(f"🎯 **Recommended:** `{recommended.get('full_path', 'N/A')}` ({recommended.get('hierarchy_description', 'N/A')})")
+        for field_name, field_data in multi_level_info.items():
+            with st.expander(f"🔍 Field: `{field_name}` ({field_data['total_occurrences']} locations)", expanded=False):
+                st.markdown("**When you specify just `{}`, you'll get ALL these columns:**".format(field_name))
                 
-                st.markdown("**All Options:**")
-                for i, opt in enumerate(conflict_data['options']):
-                    priority_icon = "🎯" if i == 0 else "⚪"
-                    queryable_icon = "✅" if opt['queryable'] else "❌"
-                    st.markdown(f"- {priority_icon} `{opt['full_path']}` - {opt['hierarchy_description']} - Queryable: {queryable_icon}")
+                for i, path_info in enumerate(field_data['paths']):
+                    priority_icon = "🎯" if i == 0 else "✅"
+                    st.markdown(f"- {priority_icon} `{path_info['full_path']}` → alias: `{path_info['alias']}`")
+                    st.caption(f"Context: {path_info['context_description']}")
 
-    # VERIFICATION: Check for sample prefixes in schema
-    sample_prefix_count = sum(1 for path in schema.keys() if "sample_" in path)
-    if sample_prefix_count > 0:
-        st.error(f"🚨 **BUG DETECTED:** {sample_prefix_count} paths contain 'sample_' prefixes!")
-    else:
-        st.success("🎯 **VERIFIED:** All paths are clean with disambiguation support")
-
-    # Create tabs for different views
-    tab1, tab2, tab3, tab4 = st.tabs(["🏷️ **Field Details**", "📊 **Frequency Chart**", "🔍 **Type Distribution**", "⚠️ **Disambiguation Guide**"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🏷️ **Field Details**", "📊 **Frequency Chart**", "🔍 **Type Distribution**", "🎯 **Multi-Level Guide**"])
 
     with tab1:
         schema_summary = []
@@ -543,9 +427,8 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
             field_type = details.get('snowflake_type', 'VARIANT')
             sample_values = details.get('sample_values', ['N/A'])
             found_in = details.get('found_in_samples', 0)
-            hierarchy = details.get('hierarchy_level', 'Unknown')
+            context_desc = details.get('context_description', 'Unknown')
 
-            # Create readable sample values
             readable_samples = []
             for val in sample_values[:3]:
                 val_str = str(val)
@@ -553,18 +436,17 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
                     val_str = val_str[:47] + "..."
                 readable_samples.append(val_str)
 
-            # Enhanced status with disambiguation info
             path_status = "✅ Clean"
             field_name = path.split('.')[-1]
-            if field_name in disambiguation_info:
-                conflict_count = disambiguation_info[field_name]['conflict_count']
-                path_status = f"⚠️ Conflicts ({conflict_count})"
+            if field_name in multi_level_info:
+                level_count = multi_level_info[field_name]['total_occurrences']
+                path_status = f"🎯 Multi-Level ({level_count})"
 
             schema_summary.append({
                 'Field Path': path,
                 'Field Name': field_name,
                 'Status': path_status,
-                'Hierarchy': hierarchy,
+                'Context': context_desc,
                 'Snowflake Type': field_type,
                 'Frequency': f"{frequency:.1%}",
                 'Found In Samples': f"{found_in}/{metadata['sample_size']}",
@@ -572,21 +454,18 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
                 'Queryable': '✅' if details.get('is_queryable', False) else '❌'
             })
 
-        # Show fields in dataframe
         import pandas as pd
         schema_df = pd.DataFrame(schema_summary)
 
-        # Add enhanced search functionality
         search_term = st.text_input("🔍 Search fields:", placeholder="Type to filter fields...")
         if search_term:
             schema_df = schema_df[schema_df['Field Path'].str.contains(search_term, case=False, na=False)]
 
-        # Filter options
         col_filter1, col_filter2 = st.columns(2)
         with col_filter1:
-            show_conflicts_only = st.checkbox("Show only conflicted fields", value=False)
-            if show_conflicts_only:
-                schema_df = schema_df[schema_df['Status'].str.contains('Conflicts')]
+            show_multi_level_only = st.checkbox("Show only multi-level fields", value=False)
+            if show_multi_level_only:
+                schema_df = schema_df[schema_df['Status'].str.contains('Multi-Level')]
         with col_filter2:
             show_queryable_only = st.checkbox("Show only queryable fields", value=False)
             if show_queryable_only:
@@ -594,17 +473,15 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
 
         st.dataframe(schema_df, use_container_width=True, height=400)
 
-        # Enhanced export option
         csv_data = schema_df.to_csv(index=False).encode('utf-8')
         st.download_button(
             "📥 Export Enhanced Schema Analysis",
             data=csv_data,
-            file_name=f"enhanced_json_schema_analysis_{metadata['table_name']}_{metadata['json_column']}.csv",
+            file_name=f"multi_level_json_schema_analysis_{metadata['table_name']}_{metadata['json_column']}.csv",
             mime="text/csv"
         )
 
     with tab2:
-        # Frequency chart
         if len(schema_summary) > 1:
             frequency_data = []
             for item in schema_summary[:15]:
@@ -620,7 +497,6 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
             st.info("Not enough fields for frequency visualization")
 
     with tab3:
-        # Type distribution
         type_counts = {}
         for details in schema.values():
             field_type = details.get('snowflake_type', 'VARIANT')
@@ -630,74 +506,54 @@ def render_enhanced_database_json_preview(schema: Dict, metadata: Dict):
             type_df = pd.DataFrame(list(type_counts.items()), columns=['Data Type', 'Count'])
             st.bar_chart(type_df.set_index('Data Type'))
             
-            # Type summary
             st.markdown("**Type Distribution:**")
             type_df['Percentage'] = (type_df['Count'] / type_df['Count'].sum() * 100).round(1)
             type_df['Percentage'] = type_df['Percentage'].astype(str) + '%'
             st.dataframe(type_df, use_container_width=True)
 
     with tab4:
-        # Enhanced disambiguation guide
-        st.markdown("#### 🎯 Smart Field Resolution Guide")
+        st.markdown("#### 🎯 Multi-Level Field Usage Guide")
         
-        if disambiguation_info:
-            st.markdown("**How to handle field conflicts in your queries:**")
+        if multi_level_info:
+            st.markdown("**🎉 Great news! You can now use simple field names and get ALL occurrences:**")
             
-            for field_name, conflict_data in disambiguation_info.items():
+            for field_name, field_data in multi_level_info.items():
                 st.markdown(f"**Field: `{field_name}`**")
                 
                 col_guide1, col_guide2 = st.columns(2)
                 
                 with col_guide1:
-                    st.markdown("**❌ Ambiguous (auto-resolved):**")
-                    st.code(f"{field_name}", language="text")
-                    recommended = conflict_data.get('recommended_option', {})
-                    if recommended:
-                        st.caption(f"→ Resolves to: {recommended.get('full_path', 'N/A')}")
+                    st.markdown("**✅ Simple Usage (Recommended):**")
+                    st.code(f"{field_name}[IS NOT NULL]", language="text")
+                    st.caption(f"→ Gets ALL {field_data['total_occurrences']} occurrences automatically!")
                 
                 with col_guide2:
-                    st.markdown("**✅ Explicit (recommended):**")
-                    for opt in conflict_data['options'][:2]:
-                        if opt['queryable']:
-                            st.code(f"{opt['full_path']}", language="text")
-                            st.caption(f"→ {opt['hierarchy_description']}")
+                    st.markdown("**📋 Expanded Columns:**")
+                    for path_info in field_data['paths'][:3]:
+                        st.code(f"{path_info['alias']}", language="text")
+                        st.caption(f"← from {path_info['full_path']}")
                 
                 st.markdown("---")
                 
-            st.info("💡 **Tip:** Always use explicit paths (like `company.name`) instead of simple field names (like `name`) to avoid ambiguity.")
+            st.success("💡 **Tip:** Just type simple field names (like `name`) and the system will automatically find and include ALL occurrences with meaningful aliases!")
         else:
-            st.success("🎉 **No field conflicts detected!** You can use simple field names without ambiguity.")
-            
-            # Show some example fields
-            example_fields = [path for path, details in schema.items() if details.get('is_queryable', False)][:5]
-            if example_fields:
-                st.markdown("**Example queryable fields:**")
-                for field in example_fields:
-                    st.code(field, language="text")
+            st.info("ℹ️ **No multi-level fields detected.** All field names are unique, so you can use them directly without any ambiguity.")
 
 
-def render_enhanced_field_suggestions(schema: Dict, disambiguation_info: Dict = None) -> List[str]:
-    """
-    Generate intelligent field suggestions with disambiguation awareness
-    """
+def render_enhanced_field_suggestions(schema: Dict, multi_level_info: Dict = None) -> List[str]:
+    """Generate intelligent field suggestions with multi-level awareness"""
     suggestions = []
 
-    # Categorize fields with disambiguation awareness
     high_frequency_fields = []
     categorical_fields = []
     numeric_fields = []
-    conflicted_fields = set()
+    multi_level_fields = set()
 
-    # Track conflicted field names
-    if disambiguation_info:
-        for field_name, conflict_data in disambiguation_info.items():
-            conflicted_fields.add(field_name)
+    if multi_level_info:
+        for field_name in multi_level_info.keys():
+            multi_level_fields.add(field_name)
 
     for path, details in schema.items():
-        # Skip any paths with sample prefixes
-        if "sample_" in path:
-            continue
-            
         frequency = details.get('frequency', 0)
         field_type = details.get('snowflake_type', 'VARIANT')
         sample_values = details.get('sample_values', [])
@@ -707,81 +563,55 @@ def render_enhanced_field_suggestions(schema: Dict, disambiguation_info: Dict = 
         if not is_queryable:
             continue
 
-        # For conflicted fields, always use full path
-        suggestion_path = path if field_name in conflicted_fields else path
+        suggestion_field = field_name if field_name in multi_level_fields else path
 
         if frequency > 0.7:
-            high_frequency_fields.append((suggestion_path, details))
+            high_frequency_fields.append((suggestion_field, details))
 
         if field_type in ['VARCHAR', 'STRING'] and sample_values:
             unique_vals = list(set([str(v) for v in sample_values]))
             if len(unique_vals) <= 3 and all(len(str(v)) < 20 for v in unique_vals):
-                categorical_fields.append((suggestion_path, unique_vals))
+                categorical_fields.append((suggestion_field, unique_vals))
 
         if field_type in ['NUMBER', 'INTEGER'] and sample_values:
-            numeric_fields.append((suggestion_path, details))
+            numeric_fields.append((suggestion_field, details))
 
-    # Generate enhanced suggestions with disambiguation awareness
-
-    # High frequency fields (always use full path for conflicted fields)
-    for path, details in high_frequency_fields[:3]:
-        field_name = path.split('.')[-1]
-        if field_name in conflicted_fields:
-            suggestions.append(f"{path}[IS NOT NULL]  # Using full path to avoid ambiguity")
+    for field, details in high_frequency_fields[:3]:
+        if field in multi_level_fields:
+            suggestions.append(f"{field}[IS NOT NULL]  # Gets ALL levels automatically")
         else:
-            suggestions.append(f"{path}[IS NOT NULL]")
+            suggestions.append(f"{field}[IS NOT NULL]")
 
-    # Categorical fields
-    for path, unique_vals in categorical_fields[:3]:
-        field_name = path.split('.')[-1]
+    for field, unique_vals in categorical_fields[:3]:
         if len(unique_vals) > 1:
-            if field_name in conflicted_fields:
-                suggestions.append(f"{path}[IN:{' | '.join(unique_vals)}]  # Full path used")
+            if field in multi_level_fields:
+                suggestions.append(f"{field}[IN:{' | '.join(unique_vals)}]  # Multi-level search")
             else:
-                suggestions.append(f"{path}[IN:{' | '.join(unique_vals)}]")
-        else:
-            if field_name in conflicted_fields:
-                suggestions.append(f"{path}[=:{unique_vals[0]}]  # Full path used")
-            else:
-                suggestions.append(f"{path}[=:{unique_vals[0]}]")
+                suggestions.append(f"{field}[IN:{' | '.join(unique_vals)}]")
 
-    # Numeric fields
-    for path, details in numeric_fields[:2]:
-        field_name = path.split('.')[-1]
+    for field, details in numeric_fields[:2]:
         sample_values = details.get('sample_values', [])
         try:
             numeric_vals = [float(v) for v in sample_values if str(v).replace('.', '').replace('-', '').isdigit()]
             if numeric_vals:
                 avg_val = sum(numeric_vals) / len(numeric_vals)
-                if field_name in conflicted_fields:
-                    suggestions.append(f"{path}[>:{avg_val:.0f}]  # Full path used")
+                if field in multi_level_fields:
+                    suggestions.append(f"{field}[>:{avg_val:.0f}]  # Multi-level comparison")
                 else:
-                    suggestions.append(f"{path}[>:{avg_val:.0f}]")
+                    suggestions.append(f"{field}[>:{avg_val:.0f}]")
         except:
-            if field_name in conflicted_fields:
-                suggestions.append(f"{path}[IS NOT NULL]  # Full path used")
-            else:
-                suggestions.append(f"{path}[IS NOT NULL]")
+            suggestions.append(f"{field}[IS NOT NULL]")
 
-    # Enhanced combinations with disambiguation awareness
-    if len(high_frequency_fields) >= 2:
-        field1, field2 = high_frequency_fields[0][0], high_frequency_fields[1][0]
-        suggestions.append(f"{field1}[IS NOT NULL], {field2}[IS NOT NULL]")
-
-    # Add disambiguation examples if conflicts exist
-    if disambiguation_info:
-        conflict_example = list(disambiguation_info.keys())[0]
-        options = disambiguation_info[conflict_example]['options'][:2]
-        suggestions.append(f"# Disambiguation example:")
-        suggestions.append(f"{', '.join([opt['full_path'] for opt in options if opt['queryable']])}")
+    if multi_level_info:
+        example_field = list(multi_level_info.keys())[0]
+        suggestions.append(f"# Multi-level example - just use simple name:")
+        suggestions.append(f"{example_field}[IS NOT NULL]  # Automatically expands to all levels")
 
     return suggestions[:10]
 
 
 def test_database_connectivity(conn_manager) -> Tuple[bool, str]:
-    """
-    Test database connectivity with enhanced diagnostics
-    """
+    """Test database connectivity with enhanced diagnostics"""
     if not conn_manager.is_connected:
         return False, "❌ Not connected to database"
 
@@ -801,8 +631,8 @@ def test_database_connectivity(conn_manager) -> Tuple[bool, str]:
 - **Schema:** {schema}  
 - **User:** {user}
 - **Role:** {role}
-- **Features:** Enhanced SQL Generation with Disambiguation
-- **Status:** Connected and Ready for Smart Analysis
+- **Features:** Multi-Level Field Detection & Automatic Expansion
+- **Status:** Connected and Ready for Smart Multi-Level Analysis
 """
             return True, status_msg
         else:
@@ -812,50 +642,53 @@ def test_database_connectivity(conn_manager) -> Tuple[bool, str]:
         return False, f"❌ Connection test error: {str(e)}"
 
 
-def render_disambiguation_helper_ui(field_conditions: str, disambiguation_info: Dict):
-    """
-    Render UI helper for field disambiguation
-    """
-    if not disambiguation_info:
+def render_multi_level_helper_ui(field_conditions: str, multi_level_info: Dict):
+    """Render UI helper for multi-level field usage"""
+    if not multi_level_info:
         return
     
-    st.markdown("#### 🎯 Smart Field Helper")
+    st.markdown("#### 🎯 Multi-Level Field Assistant")
     
-    # Parse current field conditions
     conditions = [c.strip() for c in field_conditions.split(',') if c.strip()]
     
-    # Check for potential ambiguity
-    potentially_ambiguous = []
+    expandable_fields = []
     for condition in conditions:
         field_name = condition.split('[')[0].strip()
         simple_field_name = field_name.split('.')[-1]
         
-        if simple_field_name in disambiguation_info and field_name == simple_field_name:
-            potentially_ambiguous.append((condition, simple_field_name))
+        if simple_field_name in multi_level_info and field_name == simple_field_name:
+            expandable_fields.append((condition, simple_field_name))
     
-    if potentially_ambiguous:
-        st.warning("⚠️ Some fields may be ambiguous. Consider using explicit paths:")
+    if expandable_fields:
+        st.success("✅ Great! These fields will automatically expand to multiple levels:")
         
-        for condition, simple_name in potentially_ambiguous:
-            conflict_data = disambiguation_info[simple_name]
-            st.markdown(f"**Field `{simple_name}` in condition `{condition}`:**")
+        for condition, simple_name in expandable_fields:
+            field_data = multi_level_info[simple_name]
+            st.markdown(f"**`{condition}` will become:**")
             
-            cols = st.columns(len(conflict_data['options']) + 1)
+            cols = st.columns(min(4, len(field_data['paths'])))
             
-            with cols[0]:
-                st.markdown("**Options:**")
-            
-            for i, option in enumerate(conflict_data['options'][:3]):
-                if option['queryable']:
-                    with cols[i + 1]:
-                        priority = "🎯 Recommended" if i == 0 else f"⚪ Option {i + 1}"
-                        if st.button(f"{priority}\n`{option['full_path']}`", key=f"disambig_{simple_name}_{i}"):
-                            # Replace the ambiguous condition with explicit path
-                            new_condition = condition.replace(simple_name, option['full_path'])
-                            new_conditions = [new_condition if c == condition else c for c in conditions]
-                            st.session_state.unified_field_conditions = ', '.join(new_conditions)
-                            st.rerun()
-                        st.caption(option['hierarchy_description'])
+            for i, path_info in enumerate(field_data['paths'][:4]):
+                with cols[i % 4]:
+                    st.code(path_info['alias'], language="text")
+                    st.caption(f"from {path_info['full_path']}")
+    
+    available_multi_level = [name for name in multi_level_info.keys() 
+                           if name not in [c.split('[')[0].strip() for c in conditions]]
+    
+    if available_multi_level:
+        st.markdown("**💡 Other multi-level fields you can use:**")
+        for field_name in available_multi_level[:5]:
+            field_data = multi_level_info[field_name]
+            if st.button(f"Add `{field_name}` ({field_data['total_occurrences']} levels)", key=f"add_multi_{field_name}"):
+                current_conditions = st.session_state.get('unified_field_conditions', field_conditions)
+                new_condition = f"{field_name}[IS NOT NULL]"
+                if current_conditions.strip():
+                    st.session_state.unified_field_conditions = f"{current_conditions}, {new_condition}"
+                else:
+                    st.session_state.unified_field_conditions = new_condition
+                st.rerun()
+            st.caption(f"Expands to: {', '.join([p['alias'] for p in field_data['paths'][:3]])}")
 
 
 # Enhanced version aliases for backward compatibility
@@ -869,3 +702,370 @@ def analyze_database_json_schema_enhanced(conn_manager, table_name: str, json_co
                                         sample_size: int = 10) -> Tuple[Optional[Dict], Optional[str], Dict]:
     """Enhanced version that's now the main implementation"""
     return analyze_database_json_schema_universal(conn_manager, table_name, json_column, sample_size)
+
+
+def generate_sql_from_json_data_enhanced(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> Tuple[str, List[str], Dict]:
+    """Enhanced wrapper for multi-level field support in JSON mode"""
+    try:
+        from python_sql_generator import PythonSQLGenerator
+        
+        generator = PythonSQLGenerator()
+        schema = generator.analyze_json_for_sql(json_data)
+        
+        if not schema:
+            return "-- Error: Could not analyze JSON structure", ["❌ Schema analysis failed"], {}
+        
+        sql, warnings = generator.generate_sql_with_warnings(table_name, json_column, field_conditions, schema)
+        multi_level_info = generator.get_multi_level_field_info()
+        
+        return sql, warnings, multi_level_info
+        
+    except Exception as e:
+        logger.error(f"Enhanced JSON mode SQL generation failed: {e}")
+        return f"-- Error: {str(e)}", [f"❌ Generation error: {str(e)}"], {}
+
+
+def validate_json_structure(json_data: Any) -> Tuple[bool, str]:
+    """Validate JSON structure for analysis"""
+    try:
+        if json_data is None:
+            return False, "JSON data is None"
+        
+        if isinstance(json_data, str):
+            try:
+                json.loads(json_data)
+                return True, "Valid JSON string"
+            except json.JSONDecodeError as e:
+                return False, f"Invalid JSON string: {str(e)}"
+        
+        if isinstance(json_data, (dict, list)):
+            return True, "Valid JSON object/array"
+        
+        return False, f"Unsupported JSON type: {type(json_data)}"
+        
+    except Exception as e:
+        return False, f"JSON validation error: {str(e)}"
+
+
+def get_json_sample_preview(json_data: Any, max_depth: int = 3, max_items: int = 5) -> str:
+    """Generate a preview of JSON structure for UI display"""
+    try:
+        def truncate_json(obj, depth=0):
+            if depth > max_depth:
+                return "..."
+            
+            if isinstance(obj, dict):
+                if not obj:
+                    return {}
+                items = list(obj.items())[:max_items]
+                result = {}
+                for k, v in items:
+                    result[k] = truncate_json(v, depth + 1)
+                if len(obj) > max_items:
+                    result["..."] = f"({len(obj) - max_items} more items)"
+                return result
+            
+            elif isinstance(obj, list):
+                if not obj:
+                    return []
+                items = obj[:max_items]
+                result = [truncate_json(item, depth + 1) for item in items]
+                if len(obj) > max_items:
+                    result.append(f"...({len(obj) - max_items} more items)")
+                return result
+            
+            else:
+                str_val = str(obj)
+                if len(str_val) > 50:
+                    return str_val[:47] + "..."
+                return obj
+        
+        preview = truncate_json(json_data)
+        return json.dumps(preview, indent=2, ensure_ascii=False)
+        
+    except Exception as e:
+        return f"Preview error: {str(e)}"
+
+
+def extract_field_names_from_conditions(field_conditions: str) -> List[str]:
+    """Extract field names from field conditions string"""
+    try:
+        field_names = []
+        conditions = [c.strip() for c in field_conditions.split(',') if c.strip()]
+        
+        for condition in conditions:
+            if '[' in condition:
+                field_name = condition.split('[')[0].strip()
+            else:
+                field_name = condition.strip()
+            
+            if field_name:
+                field_names.append(field_name)
+        
+        return field_names
+        
+    except Exception as e:
+        logger.error(f"Failed to extract field names: {e}")
+        return []
+
+
+def format_sql_for_display(sql: str) -> str:
+    """Format SQL for better display in UI"""
+    try:
+        # Basic SQL formatting
+        formatted = sql.strip()
+        
+        # Add proper line breaks
+        formatted = formatted.replace('SELECT', 'SELECT\n  ')
+        formatted = formatted.replace(', ', ',\n  ')
+        formatted = formatted.replace('FROM', '\nFROM\n  ')
+        formatted = formatted.replace('LATERAL FLATTEN', '\n  LATERAL FLATTEN')
+        formatted = formatted.replace('WHERE', '\nWHERE\n  ')
+        formatted = formatted.replace(' AND ', '\n  AND ')
+        formatted = formatted.replace(' OR ', '\n  OR ')
+        
+        return formatted
+        
+    except Exception as e:
+        logger.error(f"SQL formatting failed: {e}")
+        return sql
+
+
+def get_database_session_info(conn_manager) -> Dict[str, str]:
+    """Get detailed database session information"""
+    try:
+        if not conn_manager.is_connected:
+            return {"status": "Not connected"}
+        
+        info_query = """
+        SELECT 
+            CURRENT_DATABASE() as database_name,
+            CURRENT_SCHEMA() as schema_name,
+            CURRENT_USER() as user_name,
+            CURRENT_ROLE() as role_name,
+            CURRENT_WAREHOUSE() as warehouse_name,
+            CURRENT_SESSION() as session_id
+        """
+        
+        result_df, error = conn_manager.execute_query(info_query)
+        
+        if result_df is not None and not result_df.empty:
+            row = result_df.iloc[0]
+            return {
+                "status": "Connected",
+                "database": str(row.get('DATABASE_NAME', 'Unknown')),
+                "schema": str(row.get('SCHEMA_NAME', 'Unknown')),
+                "user": str(row.get('USER_NAME', 'Unknown')),
+                "role": str(row.get('ROLE_NAME', 'Unknown')),
+                "warehouse": str(row.get('WAREHOUSE_NAME', 'Unknown')),
+                "session_id": str(row.get('SESSION_ID', 'Unknown'))
+            }
+        else:
+            return {"status": "Connected but info unavailable", "error": str(error)}
+            
+    except Exception as e:
+        logger.error(f"Failed to get database session info: {e}")
+        return {"status": "Error", "error": str(e)}
+
+
+def sanitize_table_name(table_name: str) -> str:
+    """Sanitize table name to prevent SQL injection"""
+    try:
+        # Remove potentially dangerous characters
+        import re
+        sanitized = re.sub(r'[^\w\.\-]', '', table_name)
+        
+        # Ensure it's not empty after sanitization
+        if not sanitized:
+            raise ValueError("Table name becomes empty after sanitization")
+            
+        return sanitized
+        
+    except Exception as e:
+        logger.error(f"Table name sanitization failed: {e}")
+        raise ValueError(f"Invalid table name: {table_name}")
+
+
+def sanitize_column_name(column_name: str) -> str:
+    """Sanitize column name to prevent SQL injection"""
+    try:
+        # Remove potentially dangerous characters
+        import re
+        sanitized = re.sub(r'[^\w\.\-]', '', column_name)
+        
+        # Ensure it's not empty after sanitization
+        if not sanitized:
+            raise ValueError("Column name becomes empty after sanitization")
+            
+        return sanitized
+        
+    except Exception as e:
+        logger.error(f"Column name sanitization failed: {e}")
+        raise ValueError(f"Invalid column name: {column_name}")
+
+
+def check_database_permissions(conn_manager, table_name: str) -> Tuple[bool, str]:
+    """Check if user has necessary permissions on the table"""
+    try:
+        if not conn_manager.is_connected:
+            return False, "Not connected to database"
+        
+        # Try a simple SELECT to check permissions
+        resolved_table_name = resolve_table_name_universal(conn_manager, table_name)
+        test_query = f"SELECT 1 FROM {resolved_table_name} LIMIT 1"
+        
+        result_df, error = conn_manager.execute_query(test_query)
+        
+        if result_df is not None:
+            return True, "Permissions verified"
+        else:
+            if "permission" in str(error).lower() or "access" in str(error).lower():
+                return False, f"Permission denied: {error}"
+            elif "does not exist" in str(error).lower():
+                return False, f"Table does not exist: {error}"
+            else:
+                return False, f"Permission check failed: {error}"
+                
+    except Exception as e:
+        logger.error(f"Permission check failed: {e}")
+        return False, f"Permission check error: {str(e)}"
+
+
+def get_table_column_info(conn_manager, table_name: str) -> Tuple[Optional[List[Dict]], Optional[str]]:
+    """Get detailed column information for a table"""
+    try:
+        if not conn_manager.is_connected:
+            return None, "Not connected to database"
+        
+        resolved_table_name = resolve_table_name_universal(conn_manager, table_name)
+        parts = resolved_table_name.split('.')
+        
+        if len(parts) == 3:
+            database, schema, table = parts
+        else:
+            return None, f"Invalid table name format: {resolved_table_name}"
+        
+        columns_query = f"""
+        SELECT 
+            COLUMN_NAME,
+            DATA_TYPE,
+            IS_NULLABLE,
+            COLUMN_DEFAULT,
+            COMMENT
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_CATALOG = '{database}'
+          AND TABLE_SCHEMA = '{schema}'
+          AND TABLE_NAME = '{table}'
+        ORDER BY ORDINAL_POSITION
+        """
+        
+        result_df, error = conn_manager.execute_query(columns_query)
+        
+        if result_df is None:
+            return None, f"Failed to get column info: {error}"
+        
+        if result_df.empty:
+            return None, f"No column information found for table {resolved_table_name}"
+        
+        columns = []
+        for _, row in result_df.iterrows():
+            columns.append({
+                'name': row.get('COLUMN_NAME', ''),
+                'type': row.get('DATA_TYPE', ''),
+                'nullable': row.get('IS_NULLABLE', 'YES') == 'YES',
+                'default': row.get('COLUMN_DEFAULT', ''),
+                'comment': row.get('COMMENT', '')
+            })
+        
+        return columns, None
+        
+    except Exception as e:
+        logger.error(f"Failed to get table column info: {e}")
+        return None, f"Column info error: {str(e)}"
+
+
+def estimate_query_cost(conn_manager, sql: str) -> Tuple[Optional[Dict], Optional[str]]:
+    """Estimate the cost/complexity of executing a query"""
+    try:
+        if not conn_manager.is_connected:
+            return None, "Not connected to database"
+        
+        # Use EXPLAIN to get query plan without executing
+        explain_query = f"EXPLAIN {sql}"
+        
+        result_df, error = conn_manager.execute_query(explain_query)
+        
+        if result_df is None:
+            return None, f"Failed to get query plan: {error}"
+        
+        # Parse the explain output for cost estimation
+        plan_info = {
+            'estimated_complexity': 'Medium',
+            'operations': [],
+            'warnings': []
+        }
+        
+        if not result_df.empty:
+            plan_text = str(result_df.iloc[0].iloc[0]) if len(result_df.iloc[0]) > 0 else ""
+            
+            # Simple heuristics for complexity estimation
+            if 'LATERAL FLATTEN' in plan_text:
+                plan_info['operations'].append('LATERAL FLATTEN detected')
+                if plan_text.count('LATERAL FLATTEN') > 2:
+                    plan_info['estimated_complexity'] = 'High'
+                    plan_info['warnings'].append('Multiple LATERAL FLATTEN operations may be expensive')
+            
+            if 'FULL SCAN' in plan_text.upper():
+                plan_info['operations'].append('Full table scan')
+                plan_info['warnings'].append('Full table scan detected - consider adding filters')
+            
+            if len(plan_info['operations']) == 0:
+                plan_info['estimated_complexity'] = 'Low'
+        
+        return plan_info, None
+        
+    except Exception as e:
+        logger.error(f"Query cost estimation failed: {e}")
+        return None, f"Cost estimation error: {str(e)}"
+
+
+def render_query_execution_metrics(execution_time: float, row_count: int, warnings: List[str]):
+    """Render query execution metrics in the UI"""
+    try:
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                "⏱️ Execution Time",
+                f"{execution_time:.2f}s",
+                delta=f"{'Fast' if execution_time < 5 else 'Slow' if execution_time > 30 else 'Normal'}"
+            )
+        
+        with col2:
+            st.metric(
+                "📊 Rows Returned", 
+                f"{row_count:,}",
+                delta=f"{'Small' if row_count < 1000 else 'Large' if row_count > 10000 else 'Medium'}"
+            )
+        
+        with col3:
+            warning_count = len([w for w in warnings if w.startswith('⚠️')])
+            st.metric(
+                "⚠️ Warnings",
+                warning_count,
+                delta=f"{'Good' if warning_count == 0 else 'Review needed'}"
+            )
+        
+        if warnings:
+            with st.expander("📋 Execution Details", expanded=False):
+                for warning in warnings:
+                    if warning.startswith('⚠️'):
+                        st.warning(warning)
+                    elif warning.startswith('ℹ️'):
+                        st.info(warning)
+                    else:
+                        st.text(warning)
+    
+    except Exception as e:
+        logger.error(f"Failed to render execution metrics: {e}")
+        st.error(f"Failed to display metrics: {str(e)}")
