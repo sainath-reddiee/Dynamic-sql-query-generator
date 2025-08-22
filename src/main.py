@@ -24,7 +24,7 @@ from universal_db_analyzer import (
     analyze_database_json_schema_universal,
     render_enhanced_database_json_preview,
     test_database_connectivity,
-    render_disambiguation_helper_ui,
+    render_multi_level_helper_ui,
     render_enhanced_field_suggestions
 )
 
@@ -377,7 +377,7 @@ SELECT * FROM your_table LIMIT 10;"""
         disambiguation_info = metadata.get('disambiguation_info', {})
 
         if disambiguation_info and field_conditions:
-            render_disambiguation_helper_ui(field_conditions, disambiguation_info)
+            render_multi_level_helper_ui(field_conditions, disambiguation_info)
 
     col3, col4 = st.columns(2)
 
