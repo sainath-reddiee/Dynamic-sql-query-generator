@@ -2,9 +2,10 @@ import streamlit as st
 import json
 import pandas as pd
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import os
+import random
 
 # Import all required modules from the 'src' directory
 try:
@@ -139,6 +140,20 @@ st.markdown("""
         border: 2px solid #fdcb6e;
         margin: 1rem 0;
     }
+    .execution-mode-box {
+        background: linear-gradient(145deg, #e3f2fd, #f8f9ff);
+        padding: 1rem;
+        border-radius: 8px;
+        border: 2px solid #64b5f6;
+        margin: 0.5rem 0;
+    }
+    .mock-results-box {
+        background: linear-gradient(145deg, #f3e5f5, #fafafa);
+        padding: 1rem;
+        border-radius: 8px;
+        border: 2px solid #ba68c8;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -207,6 +222,408 @@ def safe_get_session_state(key: str, default: Any = None) -> Any:
         return st.session_state.get(key, default)
     except Exception:
         return default
+
+
+def generate_mock_results_from_json(json_data, field_conditions, num_rows=10):
+    """Generate mock results based on JSON structure and field conditions"""
+    import pandas as pd
+    
+    # Parse field conditions to get column names
+    fields = []
+    for condition in field_conditions.split(','):
+        field = condition.strip().split('[')[0].strip()
+        if field:
+            fields.append(field)
+    
+    if not fields:
+        return pd.DataFrame({"message": ["No fields specified"]})
+    
+    mock_data = {}
+    
+    # Helper function to extract sample value from JSON structure
+    def find_sample_value(data, field_path):
+        try:
+            parts = field_path.split('.')
+            current = data
+            
+            for part in parts:
+                if isinstance(current, dict) and part in current:
+                    current = current[part]
+                elif isinstance(current, list) and current:
+                    # Take first item from array
+                    current = current[0]
+                    if isinstance(current, dict) and part in current:
+                        current = current[part]
+                    else:
+                        return None
+                else:
+                    return None
+            return current
+        except:
+            return None
+    
+    for field in fields:
+        # Try to find actual sample from JSON
+        sample_value = find_sample_value(json_data, field)
+        
+        if sample_value is not None:
+            # Generate similar mock data based on sample
+            if isinstance(sample_value, (int, float)):
+                # Numeric data - generate similar range
+                base_val = float(sample_value)
+                mock_data[field] = [round(base_val + random.uniform(-base_val*0.5, base_val*0.5), 2) for _ in range(num_rows)]
+            elif isinstance(sample_value, str):
+                if '@' in sample_value:
+                    # Email-like
+                    domains = ['example.com', 'test.org', 'demo.net', 'sample.io']
+                    mock_data[field] = [f"user{i}@{random.choice(domains)}" for i in range(num_rows)]
+                elif any(keyword in field.lower() for keyword in ['date', 'time', 'created', 'updated']):
+                    # Date fields
+                    base_date = datetime.now()
+                    mock_data[field] = [
+                        (base_date - timedelta(days=random.randint(0, 365))).strftime('%Y-%m-%d %H:%M:%S')
+                        for _ in range(num_rows)
+                    ]
+                elif any(keyword in field.lower() for keyword in ['name', 'title']):
+                    # Name-like fields
+                    names = ['John Doe', 'Jane Smith', 'Bob Johnson', 'Alice Brown', 'Charlie Davis', 
+                            'Emma Wilson', 'Michael Chen', 'Sarah Miller', 'David Lee', 'Lisa Garcia']
+                    mock_data[field] = [random.choice(names) for _ in range(num_rows)]
+                else:
+                    # Generic string - use sample as base
+                    base_str = str(sample_value).replace(' ', '_')
+                    mock_data[field] = [f"{base_str}_{i}" for i in range(num_rows)]
+            elif isinstance(sample_value, bool):
+                mock_data[field] = [random.choice([True, False]) for _ in range(num_rows)]
+            else:
+                # Convert to string representation
+                mock_data[field] = [f"sample_{i}" for i in range(num_rows)]
+        else:
+            # No sample found - generate based on field name
+            field_lower = field.lower()
+            if any(keyword in field_lower for keyword in ['age', 'count', 'score', 'number', 'quantity']):
+                mock_data[field] = [random.randint(1, 100) for _ in range(num_rows)]
+            elif any(keyword in field_lower for keyword in ['email', 'mail']):
+                domains = ['example.com', 'test.org', 'demo.net']
+                mock_data[field] = [f"user{i}@{random.choice(domains)}" for i in range(num_rows)]
+            elif any(keyword in field_lower for keyword in ['date', 'time', 'created', 'updated']):
+                base_date = datetime.now()
+                mock_data[field] = [
+                    (base_date - timedelta(days=random.randint(0, 365))).strftime('%Y-%m-%d')
+                    for _ in range(num_rows)
+                ]
+            elif any(keyword in field_lower for keyword in ['name', 'title', 'label']):
+                options = ['Sample Item', 'Test Entry', 'Demo Record', 'Example Data', 'Mock Value']
+                mock_data[field] = [f"{random.choice(options)} {i+1}" for i in range(num_rows)]
+            elif any(keyword in field_lower for keyword in ['status', 'state', 'type']):
+                statuses = ['active', 'inactive', 'pending', 'completed', 'processing']
+                mock_data[field] = [random.choice(statuses) for _ in range(num_rows)]
+            elif any(keyword in field_lower for keyword in ['price', 'cost', 'amount', 'value']):
+                mock_data[field] = [round(random.uniform(10.0, 1000.0), 2) for _ in range(num_rows)]
+            else:
+                mock_data[field] = [f"mock_value_{i+1}" for i in range(num_rows)]
+    
+    return pd.DataFrame(mock_data)
+
+
+def generate_export_content(sql, export_format, table_name, field_conditions=None):
+    """Generate different export formats"""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    if export_format == "SQL File":
+        return f"""-- Generated SQL Query for JSON Analysis
+-- Table: {table_name}
+-- Fields: {field_conditions or 'N/A'}
+-- Generated: {timestamp}
+-- 
+-- This query extracts and analyzes JSON data from Snowflake
+-- Modify connection parameters and table references as needed
+
+{sql}
+
+-- Additional Notes:
+-- 1. Ensure your Snowflake account has access to the specified table
+-- 2. Adjust JSON field paths based on your actual data structure
+-- 3. Consider adding appropriate WHERE clauses for performance
+-- 4. Test with LIMIT clause first for large datasets
+"""
+    
+    elif export_format == "Python Script":
+        return f"""#!/usr/bin/env python3
+\"\"\"
+Generated Python script for Snowflake JSON query execution
+Table: {table_name}
+Fields: {field_conditions or 'N/A'}
+Generated: {timestamp}
+
+Requirements:
+    pip install snowflake-connector-python pandas
+
+Usage:
+    1. Update the connection configuration below
+    2. Run: python this_script.py
+\"\"\"
+
+import snowflake.connector
+import pandas as pd
+from datetime import datetime
+import sys
+
+# Snowflake connection configuration
+# IMPORTANT: Update these values with your actual connection details
+CONN_CONFIG = {{
+    'account': 'your_account.region',  # e.g., 'abc123.us-west-2.snowflakecomputing.com'
+    'user': 'your_username',
+    'password': 'your_password',  # Consider using environment variables
+    'database': 'your_database',
+    'schema': 'your_schema',
+    'warehouse': 'your_warehouse',
+    'role': 'your_role'  # Optional
+}}
+
+# Generated SQL Query
+QUERY = \"\"\"
+{sql.strip()}
+\"\"\"
+
+def execute_snowflake_query():
+    \"\"\"Execute the generated query and return results\"\"\"
+    try:
+        print(f"🔗 Connecting to Snowflake...")
+        conn = snowflake.connector.connect(**CONN_CONFIG)
+        
+        print(f"📊 Executing query...")
+        df = pd.read_sql(QUERY, conn)
+        
+        print(f"✅ Success! Retrieved {{len(df)}} rows with {{len(df.columns)}} columns")
+        
+        # Display basic info
+        print(f"\\n📋 Column Summary:")
+        for col in df.columns:
+            print(f"  - {{col}}: {{df[col].dtype}}")
+        
+        # Show first few rows
+        print(f"\\n🔍 First 5 rows:")
+        print(df.head().to_string())
+        
+        # Save to CSV
+        output_file = f"snowflake_results_{{datetime.now().strftime('%Y%m%d_%H%M%S')}}.csv"
+        df.to_csv(output_file, index=False)
+        print(f"\\n💾 Results saved to: {{output_file}}")
+        
+        conn.close()
+        return df
+        
+    except snowflake.connector.errors.DatabaseError as e:
+        print(f"❌ Database Error: {{e}}")
+        return None
+    except Exception as e:
+        print(f"❌ Error: {{e}}")
+        return None
+
+def main():
+    \"\"\"Main execution function\"\"\"
+    print("🚀 Starting Snowflake JSON Query Execution")
+    print(f"📅 Generated: {timestamp}")
+    print(f"🏗️  Table: {table_name}")
+    print(f"🎯 Fields: {field_conditions or 'N/A'}")
+    print("-" * 50)
+    
+    # Validate configuration
+    if CONN_CONFIG['account'] == 'your_account.region':
+        print("⚠️  WARNING: Please update CONN_CONFIG with your actual Snowflake details!")
+        response = input("Continue anyway? (y/N): ")
+        if response.lower() != 'y':
+            print("Exiting...")
+            sys.exit(1)
+    
+    # Execute query
+    results = execute_snowflake_query()
+    
+    if results is not None:
+        print("\\n🎉 Query execution completed successfully!")
+    else:
+        print("\\n❌ Query execution failed!")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+"""
+    
+    elif export_format == "dbt Model":
+        model_name = table_name.split('.')[-1].lower().replace('-', '_')
+        return f"""{{{{
+  config(
+    materialized='view',
+    description='JSON analysis model for {table_name}'
+  )
+}}}}
+
+--
+-- dbt model for JSON field extraction and analysis
+-- Source Table: {table_name}
+-- Fields: {field_conditions or 'N/A'}
+-- Generated: {timestamp}
+--
+-- Usage:
+--   dbt run --models {model_name}
+--
+
+{sql.rstrip(';')}
+
+--
+-- Post-hook suggestions:
+-- {{ config(post_hook="GRANT SELECT ON {{{{ this }}}} TO ROLE analytics_role") }}
+--
+-- Additional transformations can be added here:
+-- - Add data quality checks
+-- - Apply business logic transformations  
+-- - Add calculated fields
+-- - Join with other models
+--
+"""
+    
+    elif export_format == "Jupyter Notebook":
+        notebook_content = {{
+            "cells": [
+                {{
+                    "cell_type": "markdown",
+                    "metadata": {},
+                    "source": [
+                        "## 💾 Export Results\\n",
+                        "Save the results to various formats."
+                    ]
+                }},
+                {{
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "metadata": {},
+                    "outputs": [],
+                    "source": [
+                        "if df is not None and len(df) > 0:\\n",
+                        "    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')\\n",
+                        "    \\n",
+                        "    # Save to CSV\\n",
+                        "    csv_file = f'snowflake_results_{{timestamp}}.csv'\\n",
+                        "    df.to_csv(csv_file, index=False)\\n",
+                        "    print(f'📊 CSV exported: {{csv_file}}')\\n",
+                        "    \\n",
+                        "    # Save to Excel\\n",
+                        "    try:\\n",
+                        "        excel_file = f'snowflake_results_{{timestamp}}.xlsx'\\n",
+                        "        with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:\\n",
+                        "            df.to_excel(writer, sheet_name='Results', index=False)\\n",
+                        "            \\n",
+                        "            # Add summary sheet\\n",
+                        "            summary_df = pd.DataFrame({{\\n",
+                        "                'Metric': ['Total Rows', 'Total Columns', 'Generated Date', 'Source Table'],\\n",
+                        "                'Value': [len(df), len(df.columns), timestamp, '{table_name}']\\n",
+                        "            }})\\n",
+                        "            summary_df.to_excel(writer, sheet_name='Summary', index=False)\\n",
+                        "        print(f'📈 Excel exported: {{excel_file}}')\\n",
+                        "    except ImportError:\\n",
+                        "        print('⚠️ openpyxl not installed - Excel export skipped')\\n",
+                        "    \\n",
+                        "    # Save to JSON\\n",
+                        "    json_file = f'snowflake_results_{{timestamp}}.json'\\n",
+                        "    df.to_json(json_file, orient='records', indent=2)\\n",
+                        "    print(f'📋 JSON exported: {{json_file}}')\\n",
+                        "    \\n",
+                        "    print(f'\\\\n✅ All exports completed successfully!')\\n",
+                        "else:\\n",
+                        "    print('❌ No data to export')"
+                    ]
+                }}
+            ],
+            "metadata": {{
+                "kernelspec": {{
+                    "display_name": "Python 3",
+                    "language": "python",
+                    "name": "python3"
+                }},
+                "language_info": {{
+                    "codemirror_mode": {{
+                        "name": "ipython",
+                        "version": 3
+                    }},
+                    "file_extension": ".py",
+                    "mimetype": "text/x-python",
+                    "name": "python",
+                    "nbconvert_exporter": "python",
+                    "pygments_lexer": "ipython3",
+                    "version": "3.8.0"
+                }}
+            }},
+            "nbformat": 4,
+            "nbformat_minor": 4
+        }}
+        return json.dumps(notebook_content, indent=2)
+    
+    elif export_format == "PowerBI Template":
+        return f"""# Power BI Data Source Template
+# Generated: {timestamp}
+# Table: {table_name}
+# Fields: {field_conditions or 'N/A'}
+
+# 1. Open Power BI Desktop
+# 2. Get Data -> More -> Database -> Snowflake
+# 3. Enter your Snowflake server details
+# 4. Use Advanced options and paste the query below
+
+# Snowflake Connection Details:
+# Server: your_account.region.snowflakecomputing.com
+# Database: your_database
+# Schema: your_schema
+# Warehouse: your_warehouse
+
+# Custom SQL Query:
+{sql}
+
+# Additional Power BI Setup Steps:
+# 1. After connecting, you can:
+#    - Rename columns in the Query Editor
+#    - Change data types if needed
+#    - Add calculated columns
+#    - Create relationships with other tables
+#
+# 2. Recommended visualizations for JSON data:
+#    - Table visual for detailed view
+#    - Cards for key metrics
+#    - Charts for numeric fields
+#    - Slicers for filtering
+#
+# 3. Consider setting up:
+#    - Data refresh schedule
+#    - Row-level security if needed
+#    - Performance optimization
+"""
+
+    else:
+        return f"# Unknown export format: {export_format}\n# Generated: {timestamp}\n\n{sql}"
+
+
+def get_file_extension(export_format):
+    """Get file extension for export format"""
+    extensions = {
+        "SQL File": "sql",
+        "Python Script": "py",
+        "dbt Model": "sql",
+        "Jupyter Notebook": "ipynb",
+        "PowerBI Template": "txt"
+    }
+    return extensions.get(export_format, "txt")
+
+
+def get_mime_type(export_format):
+    """Get MIME type for export format"""
+    mime_types = {
+        "SQL File": "text/sql",
+        "Python Script": "text/x-python",
+        "dbt Model": "text/sql",
+        "Jupyter Notebook": "application/json",
+        "PowerBI Template": "text/plain"
+    }
+    return mime_types.get(export_format, "text/plain")
 
 
 def render_enhanced_disambiguation_info(json_data):
@@ -345,7 +762,7 @@ def render_disambiguation_details(sql, warnings, field_conditions, disambiguatio
 
 
 def render_database_operations_ui(conn_manager):
-    """Enhanced operations UI with disambiguation support for both standard and enhanced modes"""
+    """Enhanced operations UI with fixed session state handling"""
     
     if not conn_manager:
         st.error("❌ Connection manager not available")
@@ -365,7 +782,7 @@ def render_database_operations_ui(conn_manager):
     </div>
     """, unsafe_allow_html=True)
 
-    # Custom SQL section
+    # Custom SQL section with session state fix
     st.markdown("### 📊 Custom SQL Execution")
     st.markdown("""
     <div class="feature-box">
@@ -378,24 +795,57 @@ def render_database_operations_ui(conn_manager):
     </div>
     """, unsafe_allow_html=True)
 
+    # Initialize session state if not exists
+    if "last_custom_sql" not in st.session_state:
+        st.session_state.last_custom_sql = ""
+
+    # Quick example buttons BEFORE text area
+    st.markdown("#### 💡 Quick SQL Examples:")
+    col_ex1, col_ex2, col_ex3 = st.columns(3)
+    
+    example_sql = None
+    
+    with col_ex1:
+        if st.button("📋 Show Tables", help="List all tables"):
+            example_sql = "SHOW TABLES;"
+    
+    with col_ex2:
+        if st.button("🏗️ Table Schema", help="Get table information"):
+            example_sql = """SELECT
+    TABLE_CATALOG as DATABASE_NAME,
+    TABLE_SCHEMA as SCHEMA_NAME,
+    TABLE_NAME,
+    TABLE_TYPE
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA'
+ORDER BY TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
+LIMIT 20;"""
+
+    with col_ex3:
+        if st.button("📊 Sample Data", help="Sample from a table"):
+            example_sql = """-- Replace 'your_table' with actual table name
+SELECT * FROM your_table LIMIT 10;"""
+
+    # Text area with fixed session state handling
+    initial_value = example_sql if example_sql else st.session_state.last_custom_sql
+    
     custom_sql = st.text_area(
         f"Execute Custom SQL ({mode_text} Mode):",
+        value=initial_value,
         height=150,
         placeholder="""-- Quick examples to try:
 SHOW TABLES;
 -- or --
 SELECT * FROM INFORMATION_SCHEMA.TABLES
 WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA'
-LIMIT 10;
--- or --
-SELECT json_data:name::VARCHAR as name,
-       json_data:age::NUMBER as age
-FROM your_table
-WHERE json_data:status::VARCHAR = 'active'
 LIMIT 10;""",
-        key="unified_custom_sql",
+        key="custom_sql_input",
         help=f"Write any SQL query - {'large results will use Modin for faster processing' if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else 'processed with standard pandas'}"
     )
+    
+    # Store the current SQL for next time
+    if custom_sql:
+        st.session_state.last_custom_sql = custom_sql
 
     col_sql1, col_sql2 = st.columns(2)
 
@@ -475,34 +925,6 @@ LIMIT 10;""",
                         st.error(msg)
             except Exception as e:
                 st.error(f"❌ Error listing tables: {str(e)}")
-
-    # Quick SQL examples
-    st.markdown("#### 💡 Quick SQL Examples:")
-    col_ex1, col_ex2, col_ex3 = st.columns(3)
-
-    with col_ex1:
-        if st.button("📋 Show Tables", help="List all tables"):
-            st.session_state.unified_custom_sql = "SHOW TABLES;"
-            st.rerun()
-
-    with col_ex2:
-        if st.button("🏗️ Table Schema", help="Get table information"):
-            st.session_state.unified_custom_sql = """SELECT
-    TABLE_CATALOG as DATABASE_NAME,
-    TABLE_SCHEMA as SCHEMA_NAME,
-    TABLE_NAME,
-    TABLE_TYPE
-FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA'
-ORDER BY TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
-LIMIT 20;"""
-            st.rerun()
-
-    with col_ex3:
-        if st.button("📊 Sample Data", help="Sample from a table"):
-            st.session_state.unified_custom_sql = """-- Replace 'your_table' with actual table name
-SELECT * FROM your_table LIMIT 10;"""
-            st.rerun()
 
     # Enhanced Smart JSON Analysis Section with disambiguation
     st.markdown("---")
@@ -883,18 +1305,19 @@ def main():
         ])
 
         with main_tab1:
-            st.markdown('<h2 class="section-header">🐍 Enhanced SQL Generator with Results Execution</h2>', unsafe_allow_html=True)
+            st.markdown('<h2 class="section-header">🐍 Enhanced SQL Generator with Multiple Execution Options</h2>', unsafe_allow_html=True)
             
             # Enhanced description
             st.markdown("""
             <div class="feature-box">
                 <p><strong>🎯 Enhanced Python SQL Generator:</strong> Analyze JSON structure, generate SQL with smart disambiguation, 
-                and <strong>execute queries directly</strong> to see real results!</p>
+                and choose from multiple execution options!</p>
                 <ul>
                     <li>✅ <strong>Instant SQL Generation</strong> from JSON structure</li>
                     <li>🧠 <strong>Smart Field Disambiguation</strong> for duplicate field names</li>
-                    <li>⚡ <strong>Live Query Execution</strong> with results preview</li>
-                    <li>📊 <strong>Downloadable Results</strong> in CSV/JSON format</li>
+                    <li>⚡ <strong>Multiple Execution Options</strong> - Database, Mock, Export</li>
+                    <li>📊 <strong>Mock Results Preview</strong> without database connection</li>
+                    <li>📋 <strong>Export to Multiple Formats</strong> - Python, dbt, Jupyter, PowerBI</li>
                 </ul>
             </div>
             """, unsafe_allow_html=True)
@@ -935,22 +1358,44 @@ def main():
                             help="Name of the column containing JSON data in your table"
                         )
                         
-                        st.markdown("**⚡ Execution Options:**")
-                        execute_query = st.checkbox(
-                            "🚀 Execute Query After Generation",
-                            value=True,
-                            key="py_execute_query",
-                            help="Generate SQL and immediately execute it to show results"
+                        # Enhanced execution mode selection
+                        st.markdown("**🚀 Execution Options:**")
+                        execution_mode = st.radio(
+                            "Choose execution mode:",
+                            [
+                                "📝 Generate SQL Only",
+                                "🏔️ Execute on Snowflake", 
+                                "🔬 Mock Execution (Preview)",
+                                "📋 Export for External Use"
+                            ],
+                            key="py_execution_mode",
+                            help="Choose how to handle the generated SQL"
                         )
-                        
-                        if execute_query:
-                            limit_results = st.selectbox(
-                                "Result Limit",
-                                [10, 50, 100, 500, "No Limit"],
-                                index=1,
-                                key="py_result_limit",
-                                help="Limit number of rows returned for preview"
-                            )
+
+                    # Mode-specific options
+                    if execution_mode == "🏔️ Execute on Snowflake":
+                        limit_results = st.selectbox(
+                            "Result Limit",
+                            [10, 50, 100, 500, "No Limit"],
+                            index=1,
+                            key="py_result_limit",
+                            help="Limit number of rows returned for preview"
+                        )
+                    elif execution_mode == "🔬 Mock Execution (Preview)":
+                        mock_rows = st.selectbox(
+                            "Mock Result Rows:",
+                            [5, 10, 20, 50],
+                            index=1,
+                            key="py_mock_rows",
+                            help="Number of sample rows to generate"
+                        )
+                    elif execution_mode == "📋 Export for External Use":
+                        export_format = st.selectbox(
+                            "Export Format:",
+                            ["SQL File", "Python Script", "dbt Model", "Jupyter Notebook", "PowerBI Template"],
+                            key="py_export_format",
+                            help="Choose export format for your generated SQL"
+                        )
 
                     # Enhanced field suggestions with disambiguation
                     render_enhanced_python_field_suggestions(temp_schema, disambiguation_info)
@@ -958,16 +1403,24 @@ def main():
                 with col_right:
                     st.markdown("### 🚀 Generation & Execution")
                     
+                    # Execution mode display
+                    mode_display = execution_mode.split(' ', 1)[1] if ' ' in execution_mode else execution_mode
+                    st.markdown(f"""
+                    <div class="execution-mode-box">
+                        <h6 style="margin-bottom: 0.5rem; color: #1976d2;">🎯 Current Mode: {mode_display}</h6>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
                     st.markdown("---")
                     generate_btn = st.button(
-                        "🚀 Generate SQL" + (" & Execute" if safe_get_session_state('py_execute_query', True) else ""),
+                        f"🚀 {mode_display}",
                         type="primary",
                         use_container_width=True,
-                        help="Generate SQL from JSON structure" + (" and execute it immediately" if safe_get_session_state('py_execute_query', True) else "")
+                        help=f"Generate SQL and {mode_display.lower()}"
                     )
                     
-                    # Connection status for execution
-                    if safe_get_session_state('py_execute_query', True):
+                    # Connection status for database execution
+                    if execution_mode == "🏔️ Execute on Snowflake":
                         st.markdown("**🔗 Database Connection:**")
                         
                         conn_available = False
@@ -987,6 +1440,14 @@ def main():
                         else:
                             st.warning("⚠️ No active connection")
                             st.caption("💡 Connect via Database tab first")
+                    elif execution_mode == "🔬 Mock Execution (Preview)":
+                        st.markdown("**🔬 Mock Preview:**")
+                        st.info("✨ No database needed")
+                        st.caption("Generate sample results based on JSON structure")
+                    elif execution_mode == "📋 Export for External Use":
+                        st.markdown("**📋 Export Ready:**")
+                        st.info("📦 Generate portable code")
+                        st.caption(f"Export as {export_format}")
                     
                     # Quick stats about current JSON
                     if temp_schema:
@@ -1002,7 +1463,7 @@ def main():
                         if conflict_count > 0:
                             st.metric("Name Conflicts", conflict_count)
 
-                # Enhanced SQL generation with results execution
+                # Enhanced SQL generation with multiple execution modes
                 if generate_btn:
                     if not all([table_name, json_column, field_conditions]):
                         st.error("❌ Please fill in all required fields marked with *.")
@@ -1031,8 +1492,9 @@ def main():
                                         else:
                                             st.info(warning)
 
-                                # Show SQL in expandable section
-                                with st.expander("📜 Generated SQL Query", expanded=False):
+                                # Handle different execution modes
+                                if execution_mode == "📝 Generate SQL Only":
+                                    st.success("✅ SQL Generated Successfully!")
                                     st.code(sql, language="sql")
                                     
                                     st.download_button(
@@ -1042,9 +1504,8 @@ def main():
                                         mime="text/sql",
                                         help="Download the generated SQL query"
                                     )
-
-                                # Execute query if option is enabled
-                                if safe_get_session_state('py_execute_query', True):
+                                    
+                                elif execution_mode == "🏔️ Execute on Snowflake":
                                     if conn_available and conn_manager:
                                         # Apply result limit if specified
                                         limit_value = safe_get_session_state('py_result_limit', 50)
@@ -1058,6 +1519,10 @@ def main():
 
                                         st.markdown("---")
                                         st.markdown("### 🎯 Query Results")
+
+                                        # Show SQL in expandable section
+                                        with st.expander("📜 Generated SQL Query", expanded=False):
+                                            st.code(limited_sql, language="sql")
 
                                         with st.spinner("⚡ Executing query and fetching results..."):
                                             try:
@@ -1164,6 +1629,115 @@ def main():
                                         4. 🔄 Return here to generate and execute queries
                                         """)
 
+                                elif execution_mode == "🔬 Mock Execution (Preview)":
+                                    st.success("🔬 Mock execution preview generated!")
+                                    
+                                    # Show SQL in expandable section
+                                    with st.expander("📜 Generated SQL Query", expanded=False):
+                                        st.code(sql, language="sql")
+                                    
+                                    st.markdown("---")
+                                    st.markdown("### 🎭 Mock Results Preview")
+                                    st.markdown("""
+                                    <div class="mock-results-box">
+                                        <p><strong>🎯 Mock Data Generation:</strong> These results are generated based on your JSON structure 
+                                        and field patterns. Actual database results may vary.</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    # Generate mock results
+                                    mock_rows_count = safe_get_session_state('py_mock_rows', 10)
+                                    mock_df = generate_mock_results_from_json(
+                                        json_data, field_conditions, mock_rows_count
+                                    )
+                                    
+                                    if not mock_df.empty:
+                                        # Display mock metrics
+                                        mock_col1, mock_col2, mock_col3 = st.columns(3)
+                                        with mock_col1:
+                                            st.metric("Mock Rows", len(mock_df))
+                                        with mock_col2:
+                                            st.metric("Mock Columns", len(mock_df.columns))
+                                        with mock_col3:
+                                            st.metric("Data Source", "🎭 Generated")
+                                        
+                                        # Show mock results
+                                        st.markdown("#### 🎭 Sample Results:")
+                                        st.dataframe(mock_df, use_container_width=True)
+                                        
+                                        # Download mock results
+                                        mock_csv = mock_df.to_csv(index=False).encode('utf-8')
+                                        st.download_button(
+                                            "📥 Download Mock Results (CSV)",
+                                            data=mock_csv,
+                                            file_name=f"mock_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                            mime="text/csv"
+                                        )
+                                        
+                                        st.info("💡 **Next Steps:** Use this structure as a reference for your actual database queries!")
+                                    
+                                elif execution_mode == "📋 Export for External Use":
+                                    export_format_val = safe_get_session_state('py_export_format', 'SQL File')
+                                    
+                                    st.success(f"📋 {export_format_val} generated successfully!")
+                                    
+                                    # Generate export content
+                                    export_content = generate_export_content(
+                                        sql, export_format_val, table_name, field_conditions
+                                    )
+                                    
+                                    # Show export content preview
+                                    with st.expander("👀 Export Content Preview", expanded=False):
+                                        if export_format_val == "Jupyter Notebook":
+                                            st.json(json.loads(export_content), expanded=False)
+                                        else:
+                                            st.code(export_content, language="sql" if "sql" in export_format_val.lower() else "python")
+                                    
+                                    # Download export
+                                    file_extension = get_file_extension(export_format_val)
+                                    mime_type = get_mime_type(export_format_val)
+                                    
+                                    st.download_button(
+                                        f"📥 Download {export_format_val}",
+                                        data=export_content,
+                                        file_name=f"export_{table_name.replace('.', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_extension}",
+                                        mime=mime_type,
+                                        help=f"Download generated {export_format_val}"
+                                    )
+                                    
+                                    # Show usage instructions
+                                    st.markdown("---")
+                                    st.markdown("### 💡 Usage Instructions")
+                                    
+                                    if export_format_val == "Python Script":
+                                        st.info("""
+                                        **🐍 Python Script Usage:**
+                                        1. Update connection parameters in the script
+                                        2. Install required packages: `pip install snowflake-connector-python pandas`
+                                        3. Run: `python your_script.py`
+                                        """)
+                                    elif export_format_val == "dbt Model":
+                                        st.info("""
+                                        **🔧 dbt Model Usage:**
+                                        1. Save as `.sql` file in your dbt models directory
+                                        2. Run: `dbt run --models your_model_name`
+                                        3. Test: `dbt test --models your_model_name`
+                                        """)
+                                    elif export_format_val == "Jupyter Notebook":
+                                        st.info("""
+                                        **📓 Jupyter Notebook Usage:**
+                                        1. Open with Jupyter Lab/Notebook
+                                        2. Update connection parameters in the cells
+                                        3. Run cells sequentially for full analysis
+                                        """)
+                                    elif export_format_val == "PowerBI Template":
+                                        st.info("""
+                                        **📊 Power BI Usage:**
+                                        1. Open Power BI Desktop
+                                        2. Get Data → Snowflake
+                                        3. Use Advanced options and paste the provided query
+                                        """)
+
                                 # Show additional disambiguation details if present
                                 render_disambiguation_details(sql, warnings, field_conditions, disambiguation_details)
                             
@@ -1250,13 +1824,12 @@ def main():
                         """)
                         
                     with help_col2:
-                        st.markdown("**💡 Performance Tips:**")
+                        st.markdown("**💡 Execution Mode Tips:**")
                         st.markdown("""
-                        - Use specific field paths to avoid ambiguity
-                        - Add conditions to filter data early
-                        - Limit results for large datasets
-                        - Use Enhanced mode for better performance
-                        - Test with small limits first
+                        - **📝 SQL Only:** Generate queries without execution
+                        - **🏔️ Snowflake:** Live database execution with results
+                        - **🔬 Mock:** Preview structure without database
+                        - **📋 Export:** Portable code for external tools
                         """)
 
             else:
@@ -1340,21 +1913,26 @@ def main():
         # Footer with unified information
         st.markdown("""
         <div class="footer">
-            <p><strong>🚀 Unified JSON-to-SQL Analyzer</strong> | Built with ❤️ using Streamlit</p>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1rem; text-align: center;">
+            <p><strong>🚀 Enhanced JSON-to-SQL Analyzer</strong> | Built with ❤️ using Streamlit</p>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin-top: 1rem; text-align: center;">
                 <div>
                     <h4 style="color: #1976d2;">🐍 Python Mode</h4>
-                    <p>Instant SQL generation<br/>No database required<br/>Perfect for quick analysis</p>
+                    <p>Multiple execution options<br/>Mock results & exports<br/>No database required</p>
                 </div>
                 <div>
                     <h4 style="color: #2e7d32;">🏔️ Database Mode</h4>
-                    <p>Live Snowflake connectivity<br/>Standard or Enhanced modes<br/>Real database operations</p>
+                    <p>Live Snowflake connectivity<br/>Enhanced performance modes<br/>Real database operations</p>
+                </div>
+                <div>
+                    <h4 style="color: #9c27b0;">🚀 New Features</h4>
+                    <p>Mock execution preview<br/>Export to 5+ formats<br/>Smart disambiguation</p>
                 </div>
             </div>
             <hr style="margin: 2rem 0; border: 1px solid #e9ecef;">
             <p><small>
-                <strong>🎯 Smart Feature:</strong> Unified connector automatically adapts to your chosen mode!<br/>
-                <strong>⚡ Performance:</strong> Enhanced mode provides Modin acceleration for datasets >1000 rows
+                <strong>🎯 Smart Features:</strong> Field disambiguation, mock results, and portable exports!<br/>
+                <strong>⚡ Performance:</strong> Enhanced mode provides Modin acceleration for datasets >1000 rows<br/>
+                <strong>📋 Export Options:</strong> SQL, Python, dbt, Jupyter Notebook, Power BI templates
             </small></p>
         </div>
         """, unsafe_allow_html=True)
@@ -1375,3 +1953,230 @@ def main():
 
 if __name__ == "__main__":
     main()
+                    "cell_type": "markdown",
+                    "metadata": {{}},
+                    "source": [
+                        "# Snowflake JSON Analysis Notebook\\n",
+                        f"**Generated:** {timestamp}\\n",
+                        f"**Table:** {table_name}\\n",
+                        f"**Fields:** {field_conditions or 'N/A'}\\n",
+                        "\\n",
+                        "This notebook contains the generated SQL query for JSON analysis in Snowflake.\\n",
+                        "Update the connection parameters and run the cells below."
+                    ]
+                }},
+                {{
+                    "cell_type": "markdown",
+                    "metadata": {{}},
+                    "source": [
+                        "## 📦 Install Required Packages\\n",
+                        "Run this cell first to install required dependencies."
+                    ]
+                }},
+                {{
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "metadata": {{}},
+                    "outputs": [],
+                    "source": [
+                        "# Install required packages\\n",
+                        "!pip install snowflake-connector-python pandas matplotlib seaborn\\n",
+                        "\\n",
+                        "import snowflake.connector\\n",
+                        "import pandas as pd\\n",
+                        "import matplotlib.pyplot as plt\\n",
+                        "import seaborn as sns\\n",
+                        "from datetime import datetime\\n",
+                        "\\n",
+                        "print('✅ Packages imported successfully!')"
+                    ]
+                }},
+                {{
+                    "cell_type": "markdown",
+                    "metadata": {{}},
+                    "source": [
+                        "## 🔗 Snowflake Connection Setup\\n",
+                        "**Important:** Update the connection parameters below with your actual Snowflake credentials."
+                    ]
+                }},
+                {{
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "metadata": {{}},
+                    "outputs": [],
+                    "source": [
+                        "# Snowflake connection configuration\\n",
+                        "# IMPORTANT: Update these with your actual credentials\\n",
+                        "conn_params = {{\\n",
+                        "    'account': 'your_account.region',\\n",
+                        "    'user': 'your_username',\\n",
+                        "    'password': 'your_password',  # Consider using getpass for security\\n",
+                        "    'database': 'your_database',\\n",
+                        "    'schema': 'your_schema',\\n",
+                        "    'warehouse': 'your_warehouse'\\n",
+                        "}}\\n",
+                        "\\n",
+                        "# Alternative: Use environment variables for security\\n",
+                        "# import os\\n",
+                        "# conn_params['password'] = os.getenv('SNOWFLAKE_PASSWORD')\\n",
+                        "\\n",
+                        "print('🔧 Connection parameters configured')"
+                    ]
+                }},
+                {{
+                    "cell_type": "markdown",
+                    "metadata": {{}},
+                    "source": [
+                        "## 📊 Generated SQL Query\\n",
+                        "This is the SQL query generated from your JSON analysis requirements."
+                    ]
+                }},
+                {{
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "metadata": {{}},
+                    "outputs": [],
+                    "source": [
+                        f"# Generated SQL Query\\n",
+                        f'query = \"\"\"\\n{sql.strip()}\\n\"\"\"\\n',
+                        "\\n",
+                        "print('📝 Query loaded:')\\n",
+                        "print(query[:200] + '...' if len(query) > 200 else query)"
+                    ]
+                }},
+                {{
+                    "cell_type": "markdown",
+                    "metadata": {{}},
+                    "source": [
+                        "## 🚀 Execute Query\\n",
+                        "Connect to Snowflake and execute the generated query."
+                    ]
+                }},
+                {{
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "metadata": {{}},
+                    "outputs": [],
+                    "source": [
+                        "# Execute query and get results\\n",
+                        "try:\\n",
+                        "    print('🔗 Connecting to Snowflake...')\\n",
+                        "    conn = snowflake.connector.connect(**conn_params)\\n",
+                        "    \\n",
+                        "    print('📊 Executing query...')\\n",
+                        "    df = pd.read_sql(query, conn)\\n",
+                        "    \\n",
+                        "    print(f'✅ Success! Retrieved {{len(df)}} rows with {{len(df.columns)}} columns')\\n",
+                        "    \\n",
+                        "    # Display basic information\\n",
+                        "    print('\\\\n📋 Dataset Info:')\\n",
+                        "    print(f'Rows: {{len(df):,}}')\\n",
+                        "    print(f'Columns: {{len(df.columns)}}')\\n",
+                        "    print(f'Memory usage: {{df.memory_usage(deep=True).sum() / 1024**2:.2f}} MB')\\n",
+                        "    \\n",
+                        "    conn.close()\\n",
+                        "    \\n",
+                        "except Exception as e:\\n",
+                        "    print(f'❌ Error: {{e}}')\\n",
+                        "    df = None"
+                    ]
+                }},
+                {{
+                    "cell_type": "markdown",
+                    "metadata": {{}},
+                    "source": [
+                        "## 👀 Data Preview\\n",
+                        "Display the first few rows and basic statistics."
+                    ]
+                }},
+                {{
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "metadata": {{}},
+                    "outputs": [],
+                    "source": [
+                        "if df is not None:\\n",
+                        "    print('🔍 First 10 rows:')\\n",
+                        "    display(df.head(10))\\n",
+                        "    \\n",
+                        "    print('\\\\n📊 Column Information:')\\n",
+                        "    display(df.dtypes.to_frame('Data Type'))\\n",
+                        "    \\n",
+                        "    print('\\\\n📈 Basic Statistics:')\\n",
+                        "    display(df.describe(include='all'))\\n",
+                        "else:\\n",
+                        "    print('❌ No data available - check connection and query execution above')"
+                    ]
+                }},
+                {{
+                    "cell_type": "markdown",
+                    "metadata": {{}},
+                    "source": [
+                        "## 📊 Data Visualization\\n",
+                        "Create some basic visualizations of the results."
+                    ]
+                }},
+                {{
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "metadata": {{}},
+                    "outputs": [],
+                    "source": [
+                        "if df is not None and len(df) > 0:\\n",
+                        "    # Set up plotting style\\n",
+                        "    plt.style.use('seaborn-v0_8')\\n",
+                        "    fig, axes = plt.subplots(2, 2, figsize=(15, 12))\\n",
+                        "    fig.suptitle(f'Data Analysis: {table_name}', fontsize=16)\\n",
+                        "    \\n",
+                        "    # Plot 1: Data types distribution\\n",
+                        "    type_counts = df.dtypes.value_counts()\\n",
+                        "    axes[0,0].pie(type_counts.values, labels=type_counts.index, autopct='%1.1f%%')\\n",
+                        "    axes[0,0].set_title('Column Data Types')\\n",
+                        "    \\n",
+                        "    # Plot 2: Missing values\\n",
+                        "    missing_data = df.isnull().sum()\\n",
+                        "    missing_data = missing_data[missing_data > 0]\\n",
+                        "    if len(missing_data) > 0:\\n",
+                        "        missing_data.plot(kind='bar', ax=axes[0,1])\\n",
+                        "        axes[0,1].set_title('Missing Values by Column')\\n",
+                        "        axes[0,1].tick_params(axis='x', rotation=45)\\n",
+                        "    else:\\n",
+                        "        axes[0,1].text(0.5, 0.5, 'No Missing Values', ha='center', va='center', transform=axes[0,1].transAxes)\\n",
+                        "        axes[0,1].set_title('Missing Values')\\n",
+                        "    \\n",
+                        "    # Plot 3: Numeric columns distribution (first numeric column)\\n",
+                        "    numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns\\n",
+                        "    if len(numeric_cols) > 0:\\n",
+                        "        df[numeric_cols[0]].hist(bins=20, ax=axes[1,0])\\n",
+                        "        axes[1,0].set_title(f'Distribution: {{numeric_cols[0]}}')\\n",
+                        "    else:\\n",
+                        "        axes[1,0].text(0.5, 0.5, 'No Numeric Columns', ha='center', va='center', transform=axes[1,0].transAxes)\\n",
+                        "        axes[1,0].set_title('Numeric Distribution')\\n",
+                        "    \\n",
+                        "    # Plot 4: Record count over time (if date column exists)\\n",
+                        "    date_cols = df.select_dtypes(include=['datetime64', 'object']).columns\\n",
+                        "    date_col = None\\n",
+                        "    for col in date_cols:\\n",
+                        "        if any(keyword in col.lower() for keyword in ['date', 'time', 'created', 'updated']):\\n",
+                        "            try:\\n",
+                        "                pd.to_datetime(df[col].dropna().head(10))\\n",
+                        "                date_col = col\\n",
+                        "                break\\n",
+                        "            except:\\n",
+                        "                continue\\n",
+                        "    \\n",
+                        "    if date_col:\\n",
+                        "        df[date_col] = pd.to_datetime(df[date_col], errors='coerce')\\n",
+                        "        df.set_index(date_col).resample('D').size().plot(ax=axes[1,1])\\n",
+                        "        axes[1,1].set_title(f'Records Over Time: {{date_col}}')\\n",
+                        "    else:\\n",
+                        "        axes[1,1].text(0.5, 0.5, 'No Date Columns Found', ha='center', va='center', transform=axes[1,1].transAxes)\\n",
+                        "        axes[1,1].set_title('Timeline Analysis')\\n",
+                        "    \\n",
+                        "    plt.tight_layout()\\n",
+                        "    plt.show()\\n",
+                        "else:\\n",
+                        "    print('❌ No data available for visualization')"
+                    ]
+                }},
+                {{
