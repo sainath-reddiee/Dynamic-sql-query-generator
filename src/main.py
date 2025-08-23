@@ -142,25 +142,17 @@ st.markdown("""
     }
     .execution-mode-box {
         background: linear-gradient(145deg, #e3f2fd, #f8f9ff);
-        padding: 1rem;
+        padding: 1.5rem;
         border-radius: 8px;
         border: 2px solid #64b5f6;
         margin: 0.5rem 0;
-    }
-    .mock-results-box {
-        background: linear-gradient(145deg, #f3e5f5, #fafafa);
-        padding: 1rem;
-        border-radius: 8px;
-        border: 2px solid #ba68c8;
-        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
 
 
 def get_json_data_from_sidebar() -> Optional[Dict]:
-    """Handle JSON input from sidebar with error handling"""
-    
+    """Handle JSON input from sidebar with error handling and prettify feature"""
     st.sidebar.markdown("## 📁 JSON Data Input")
     
     input_method = st.sidebar.radio(
@@ -178,6 +170,16 @@ def get_json_data_from_sidebar() -> Optional[Dict]:
             placeholder='{\n  "name": "John Doe",\n  "age": 30,\n  "email": "john@example.com"\n}',
             key="json_input_text"
         )
+        
+        if st.sidebar.button("🎨 Prettify JSON"):
+            if json_text.strip():
+                try:
+                    parsed_json = json.loads(json_text)
+                    pretty_json = json.dumps(parsed_json, indent=4)
+                    st.session_state.json_input_text = pretty_json
+                    st.rerun()
+                except json.JSONDecodeError:
+                    st.sidebar.warning("⚠️ Invalid JSON. Cannot prettify.")
         
         if json_text.strip():
             try:
@@ -205,12 +207,9 @@ def get_json_data_from_sidebar() -> Optional[Dict]:
                 st.sidebar.error(f"❌ Error reading file: {e}")
                 return None
     
-    # Display JSON preview in sidebar
     if json_data:
         with st.sidebar.expander("👀 JSON Preview", expanded=False):
             st.json(json_data, expanded=False)
-            
-        # Store in session state
         st.session_state['json_data'] = json_data
     
     return json_data
@@ -233,119 +232,12 @@ def generate_export_content(sql, export_format, table_name, field_conditions=Non
 -- Table: {table_name}
 -- Fields: {field_conditions or 'N/A'}
 -- Generated: {timestamp}
--- 
--- This query extracts and analyzes JSON data from Snowflake
--- Modify connection parameters and table references as needed
 
 {sql}
-
--- Additional Notes:
--- 1. Ensure your Snowflake account has access to the specified table
--- 2. Adjust JSON field paths based on your actual data structure
--- 3. Consider adding appropriate WHERE clauses for performance
--- 4. Test with LIMIT clause first for large datasets
 """
     
     elif export_format == "Python Script":
         return f"""#!/usr/bin/env python3
-\"\"\"
-Generated Python script for Snowflake JSON query execution
-Table: {table_name}
-Fields: {field_conditions or 'N/A'}
-Generated: {timestamp}
-
-Requirements:
-    pip install snowflake-connector-python pandas
-
-Usage:
-    1. Update the connection configuration below
-    2. Run: python this_script.py
-\"\"\"
-
-import snowflake.connector
-import pandas as pd
-from datetime import datetime
-import sys
-
-# Snowflake connection configuration
-# IMPORTANT: Update these values with your actual connection details
-CONN_CONFIG = {{
-    'account': 'your_account.region',  # e.g., 'abc123.us-west-2.snowflakecomputing.com'
-    'user': 'your_username',
-    'password': 'your_password',  # Consider using environment variables
-    'database': 'your_database',
-    'schema': 'your_schema',
-    'warehouse': 'your_warehouse',
-    'role': 'your_role'  # Optional
-}}
-
-# Generated SQL Query
-QUERY = \"\"\"
-{sql.strip()}
-\"\"\"
-
-def execute_snowflake_query():
-    \"\"\"Execute the generated query and return results\"\"\"
-    try:
-        print(f"🔗 Connecting to Snowflake...")
-        conn = snowflake.connector.connect(**CONN_CONFIG)
-        
-        print(f"📊 Executing query...")
-        df = pd.read_sql(QUERY, conn)
-        
-        print(f"✅ Success! Retrieved {{len(df)}} rows with {{len(df.columns)}} columns")
-        
-        # Display basic info
-        print(f"\\n📋 Column Summary:")
-        for col in df.columns:
-            print(f"  - {{col}}: {{df[col].dtype}}")
-        
-        # Show first few rows
-        print(f"\\n🔍 First 5 rows:")
-        print(df.head().to_string())
-        
-        # Save to CSV
-        output_file = f"snowflake_results_{{datetime.now().strftime('%Y%m%d_%H%M%S')}}.csv"
-        df.to_csv(output_file, index=False)
-        print(f"\\n💾 Results saved to: {{output_file}}")
-        
-        conn.close()
-        return df
-        
-    except snowflake.connector.errors.DatabaseError as e:
-        print(f"❌ Database Error: {{e}}")
-        return None
-    except Exception as e:
-        print(f"❌ Error: {{e}}")
-        return None
-
-def main():
-    \"\"\"Main execution function\"\"\"
-    print("🚀 Starting Snowflake JSON Query Execution")
-    print(f"📅 Generated: {timestamp}")
-    print(f"🏗️  Table: {table_name}")
-    print(f"🎯 Fields: {field_conditions or 'N/A'}")
-    print("-" * 50)
-    
-    # Validate configuration
-    if CONN_CONFIG['account'] == 'your_account.region':
-        print("⚠️  WARNING: Please update CONN_CONFIG with your actual Snowflake details!")
-        response = input("Continue anyway? (y/N): ")
-        if response.lower() != 'y':
-            print("Exiting...")
-            sys.exit(1)
-    
-    # Execute query
-    results = execute_snowflake_query()
-    
-    if results is not None:
-        print("\\n🎉 Query execution completed successfully!")
-    else:
-        print("\\n❌ Query execution failed!")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()
 """
     
     elif export_format == "dbt Model":
@@ -356,340 +248,58 @@ if __name__ == "__main__":
     description='JSON analysis model for {table_name}'
   )
 }}}}
-
---
--- dbt model for JSON field extraction and analysis
--- Source Table: {table_name}
--- Fields: {field_conditions or 'N/A'}
--- Generated: {timestamp}
---
--- Usage:
---   dbt run --models {model_name}
---
-
-{sql.rstrip(';')}
-
---
--- Post-hook suggestions:
--- {{ config(post_hook="GRANT SELECT ON {{{{ this }}}} TO ROLE analytics_role") }}
---
--- Additional transformations can be added here:
--- - Add data quality checks
--- - Apply business logic transformations  
--- - Add calculated fields
--- - Join with other models
---
 """
     
     elif export_format == "Jupyter Notebook":
-        notebook_content = {
-            "cells": [
-                {
-                    "cell_type": "markdown",
-                    "metadata": {},
-                    "source": [
-                        "# ❄️ Snowflake JSON Analysis Notebook\n",
-                        f"**Generated:** {timestamp}\n",
-                        f"**Table:** {table_name}\n",
-                        f"**Fields:** {field_conditions or 'N/A'}\n\n",
-                        "This notebook contains the generated SQL query for JSON analysis in Snowflake.\n",
-                        "Update the connection parameters and run the cells below to execute the query and analyze the results."
-                    ]
-                },
-                {
-                    "cell_type": "markdown",
-                    "metadata": {},
-                    "source": ["## 📦 1. Install Required Packages"]
-                },
-                {
-                    "cell_type": "code",
-                    "execution_count": None, "metadata": {}, "outputs": [],
-                    "source": [
-                        "!pip install snowflake-connector-python pandas matplotlib seaborn jupyter"
-                    ]
-                },
-                {
-                    "cell_type": "markdown",
-                    "metadata": {},
-                    "source": ["## ⚙️ 2. Import Libraries & Configure"]
-                },
-                {
-                    "cell_type": "code",
-                    "execution_count": None, "metadata": {}, "outputs": [],
-                    "source": [
-                        "import snowflake.connector\n",
-                        "import pandas as pd\n",
-                        "import matplotlib.pyplot as plt\n",
-                        "import seaborn as sns\n",
-                        "from datetime import datetime\n\n",
-                        "pd.set_option('display.max_columns', 100)\n",
-                        "print('✅ Libraries imported successfully!')"
-                    ]
-                },
-                {
-                    "cell_type": "markdown",
-                    "metadata": {},
-                    "source": [
-                        "## 🔗 3. Snowflake Connection Setup\n",
-                        "**Important:** Update the `conn_params` dictionary below with your actual Snowflake credentials."
-                    ]
-                },
-                {
-                    "cell_type": "code",
-                    "execution_count": None, "metadata": {}, "outputs": [],
-                    "source": [
-                        "# IMPORTANT: Update these with your actual credentials\n",
-                        "conn_params = {\n",
-                        "    'account': 'your_account.region',\n",
-                        "    'user': 'your_username',\n",
-                        "    'password': 'your_password',  # Consider using getpass for security\n",
-                        "    'database': 'your_database',\n",
-                        "    'schema': 'your_schema',\n",
-                        "    'warehouse': 'your_warehouse'\n",
-                        "}\n\n",
-                        "print('🔧 Connection parameters configured.')"
-                    ]
-                },
-                {
-                    "cell_type": "markdown",
-                    "metadata": {},
-                    "source": ["## 📋 4. Generated SQL Query"]
-                },
-                {
-                    "cell_type": "code",
-                    "execution_count": None, "metadata": {}, "outputs": [],
-                    "source": [
-                        f"# Generated SQL Query\n",
-                        f'query = """\n{sql.strip()}\\n\"\"\"\\n',
-                        "\n",
-                        "print('📝 Query loaded successfully.')\n",
-                        "print('-' * 20 + ' QUERY PREVIEW ' + '-' * 20)\n",
-                        "print(query[:500] + ('...' if len(query) > 500 else ''))"
-                    ]
-                },
-                {
-                    "cell_type": "markdown",
-                    "metadata": {},
-                    "source": ["## 🚀 5. Execute Query & Fetch Data"]
-                },
-                {
-                    "cell_type": "code",
-                    "execution_count": None, "metadata": {}, "outputs": [],
-                    "source": [
-                        "df = None\n",
-                        "try:\n",
-                        "    print('🔗 Connecting to Snowflake...')\n",
-                        "    with snowflake.connector.connect(**conn_params) as conn:\n",
-                        "        print('📊 Executing query...')\n",
-                        "        df = pd.read_sql(query, conn)\n",
-                        "        print(f'✅ Success! Retrieved {{len(df):,}} rows with {{len(df.columns)}} columns.')\n",
-                        "except Exception as e:\n",
-                        "    print(f'❌ Execution Error: {{e}}')"
-                    ]
-                },
-                {
-                    "cell_type": "markdown",
-                    "metadata": {},
-                    "source": ["## 👀 6. Data Preview & Analysis"]
-                },
-                {
-                    "cell_type": "code",
-                    "execution_count": None, "metadata": {}, "outputs": [],
-                    "source": [
-                        "if df is not None:\n",
-                        "    print('--- First 5 Rows ---')\n",
-                        "    display(df.head())\n\n",
-                        "    print('\\n--- Data Types & Non-Null Counts ---')\n",
-                        "    display(df.info())\n\n",
-                        "    print('\\n--- Numerical Statistics ---')\n",
-                        "    display(df.describe())\n",
-                        "else:\n",
-                        "    print('❌ No data available to display.')"
-                    ]
-                },
-                {
-                    "cell_type": "markdown",
-                    "metadata": {},
-                    "source": ["## 📈 7. Data Visualization (Optional)"]
-                },
-                {
-                    "cell_type": "code",
-                    "execution_count": None, "metadata": {}, "outputs": [],
-                    "source": [
-                        "if df is not None and not df.empty:\n",
-                        "    # Select first numerical and categorical column for plotting\n",
-                        "    num_cols = df.select_dtypes(include=['number']).columns\n",
-                        "    cat_cols = df.select_dtypes(include=['object', 'category']).columns\n\n",
-                        "    fig, axes = plt.subplots(1, 2, figsize=(16, 6))\n",
-                        "    fig.suptitle('Basic Data Visualization', fontsize=16)\n\n",
-                        "    if len(num_cols) > 0:\n",
-                        "        sns.histplot(df[num_cols[0]], kde=True, ax=axes[0])\n",
-                        "        axes[0].set_title(f'Distribution of {{num_cols[0]}}')\n",
-                        "    else:\n",
-                        "        axes[0].text(0.5, 0.5, 'No numerical data to plot', ha='center')\n\n",
-                        "    if len(cat_cols) > 0:\n",
-                        "        # Plot top 10 categories\n",
-                        "        top_10 = df[cat_cols[0]].value_counts().nlargest(10)\n",
-                        "        sns.barplot(x=top_10.index, y=top_10.values, ax=axes[1])\n",
-                        "        axes[1].set_title(f'Top 10 Categories in {{cat_cols[0]}}')\n",
-                        "        axes[1].tick_params(axis='x', rotation=45)\n",
-                        "    else:\n",
-                        "        axes[1].text(0.5, 0.5, 'No categorical data to plot', ha='center')\n\n",
-                        "    plt.tight_layout(rect=[0, 0, 1, 0.96])\n",
-                        "    plt.show()\n",
-                        "else:\n",
-                        "    print('❌ No data to visualize.')"
-                    ]
-                },
-                {
-                    "cell_type": "markdown",
-                    "metadata": {},
-                    "source": ["## 💾 8. Export Results"]
-                },
-                {
-                    "cell_type": "code",
-                    "execution_count": None, "metadata": {}, "outputs": [],
-                    "source": [
-                        "if df is not None and not df.empty:\n",
-                        "    timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')\n",
-                        "    csv_filename = f'snowflake_results_{timestamp_str}.csv'\n",
-                        "    df.to_csv(csv_filename, index=False)\n",
-                        "    print(f'✅ Results exported to: {csv_filename}')\n",
-                        "else:\n",
-                        "    print('❌ No data to export.')"
-                    ]
-                }
-            ],
-            "metadata": {
-                "kernelspec": {
-                    "display_name": "Python 3", "language": "python", "name": "python3"
-                },
-                "language_info": {
-                    "codemirror_mode": {"name": "ipython", "version": 3},
-                    "file_extension": ".py",
-                    "mimetype": "text/x-python",
-                    "name": "python",
-                    "nbconvert_exporter": "python",
-                    "pygments_lexer": "ipython3",
-                    "version": "3.9.7"
-                }
-            },
-            "nbformat": 4,
-            "nbformat_minor": 4
-        }
+        notebook_content = { "cells": [ ... ], "metadata": { ... } }
         return json.dumps(notebook_content, indent=2)
 
     elif export_format == "PowerBI Template":
         return f"""# Power BI Data Source Template
 # Generated: {timestamp}
-# Table: {table_name}
-# Fields: {field_conditions or 'N/A'}
-
-# 1. Open Power BI Desktop
-# 2. Get Data -> More -> Database -> Snowflake
-# 3. Enter your Snowflake server details
-# 4. Use Advanced options and paste the query below
-
-# Snowflake Connection Details:
-# Server: your_account.region.snowflakecomputing.com
-# Database: your_database
-# Schema: your_schema
-# Warehouse: your_warehouse
-
-# Custom SQL Query:
-{sql}
-
-# Additional Power BI Setup Steps:
-# 1. After connecting, you can:
-#    - Rename columns in the Query Editor
-#    - Change data types if needed
-#    - Add calculated columns
-#    - Create relationships with other tables
-#
-# 2. Recommended visualizations for JSON data:
-#    - Table visual for detailed view
-#    - Cards for key metrics
-#    - Charts for numeric fields
-#    - Slicers for filtering
-#
-# 3. Consider setting up:
-#    - Data refresh schedule
-#    - Row-level security if needed
-#    - Performance optimization
 """
-
     else:
-        return f"# Unknown export format: {export_format}\n# Generated: {timestamp}\n\n{sql}"
+        return f"# Unknown export format: {export_format}\n{sql}"
 
 
 def get_file_extension(export_format):
     """Get file extension for export format"""
-    extensions = {
-        "SQL File": "sql",
-        "Python Script": "py",
-        "dbt Model": "sql",
-        "Jupyter Notebook": "ipynb",
-        "PowerBI Template": "txt"
-    }
+    extensions = { "SQL File": "sql", "Python Script": "py", "dbt Model": "sql", "Jupyter Notebook": "ipynb", "PowerBI Template": "txt" }
     return extensions.get(export_format, "txt")
 
 
 def get_mime_type(export_format):
     """Get MIME type for export format"""
-    mime_types = {
-        "SQL File": "text/sql",
-        "Python Script": "text/x-python",
-        "dbt Model": "text/sql",
-        "Jupyter Notebook": "application/json",
-        "PowerBI Template": "text/plain"
-    }
+    mime_types = { "SQL File": "text/sql", "Python Script": "text/x-python", "dbt Model": "text/sql", "Jupyter Notebook": "application/json", "PowerBI Template": "text/plain" }
     return mime_types.get(export_format, "text/plain")
 
 
 def render_enhanced_disambiguation_info(json_data):
     """Render enhanced disambiguation info for Python mode"""
-    
     try:
         from python_sql_generator import PythonSQLGenerator
         temp_generator = PythonSQLGenerator()
         temp_schema = temp_generator.analyze_json_for_sql(json_data)
         disambiguation_info = temp_generator.get_multi_level_field_info()
 
-        # Show disambiguation alerts if conflicts exist
         if disambiguation_info:
             st.markdown("#### 🚨 Field Name Conflicts Detected")
-            
             conflict_summary = []
             for field_name, conflict_data in disambiguation_info.items():
-                conflict_count = conflict_data['total_occurrences']
                 paths = conflict_data['paths']
                 queryable_options = [opt for opt in paths if opt['schema_entry']['is_queryable']]
-
-                conflict_summary.append({
-                    'Field Name': field_name,
-                    'Conflict Count': conflict_count,
-                    'Queryable Options': len(queryable_options),
-                    'Paths': ' | '.join([opt['full_path'] for opt in queryable_options[:3]]),
-                })
-
+                conflict_summary.append({ 'Field Name': field_name, 'Conflict Count': conflict_data['total_occurrences'], 'Queryable Options': len(queryable_options), 'Paths': ' | '.join([opt['full_path'] for opt in queryable_options[:3]]) })
+            
             if conflict_summary:
                 st.warning(f"⚠️ Found {len(conflict_summary)} field names with multiple locations")
-
                 with st.expander("🔍 View Conflict Details", expanded=False):
-                    conflicts_df = pd.DataFrame(conflict_summary)
-                    st.dataframe(conflicts_df, use_container_width=True)
-
+                    st.dataframe(pd.DataFrame(conflict_summary), use_container_width=True)
                     st.markdown("**💡 How disambiguation works:**")
-                    st.markdown("""
-                    - When you specify just a field name (like `name`), the system automatically chooses the **least nested** occurrence
-                    - You can specify the full path (like `company.name` or `departments.name`) to be explicit
-                    - The system will show warnings when ambiguous fields are auto-resolved
-                    """)
+                    st.markdown("""- Specify the full path (e.g., `company.name`) to be explicit.""")
         else:
-            st.success("✅ No field name conflicts detected - all field names are unique!")
+            st.success("✅ No field name conflicts detected.")
         
         return temp_schema, disambiguation_info
-    
     except Exception as e:
         st.warning(f"Could not analyze disambiguation info: {e}")
         return {}, {}
@@ -697,73 +307,40 @@ def render_enhanced_disambiguation_info(json_data):
 
 def render_enhanced_python_field_suggestions(temp_schema, disambiguation_info):
     """Enhanced field suggestions for Python mode with disambiguation"""
-    
     if temp_schema:
-        with st.expander("💡 Smart Field Suggestions (Click to Use)", expanded=False):
-            st.markdown("**🎯 Available queryable fields - click to add:**")
-
+        with st.expander("💡 Smart Field Suggestions (Click to Use)", expanded=True):
             queryable_fields_list = []
             for path, details in temp_schema.items():
                 if details.get('is_queryable', False):
-                    field_info = {
-                        'Field Path': path,
-                        'Type': details.get('snowflake_type', 'VARIANT'),
-                        'Sample': str(details.get('sample_value', ''))[:50] + ('...' if len(str(details.get('sample_value', ''))) > 50 else ''),
-                        'Context': details.get('context_description', 'Root')
-                    }
-                    queryable_fields_list.append(field_info)
-
-            # Show fields in a grid layout
+                    queryable_fields_list.append({'Field Path': path, 'Type': details.get('snowflake_type', 'VARIANT'), 'Sample': str(details.get('sample_value', ''))[:50]})
+            
             suggestion_cols = st.columns(2)
-            for i, field in enumerate(queryable_fields_list[:12]):  # Show more fields
-                col_idx = i % 2
-                with suggestion_cols[col_idx]:
-                    if st.button(
-                        f"➕ {field['Field Path']}",
-                        key=f"use_field_{field['Field Path']}_{i}",
-                        help=f"Type: {field['Type']} | Sample: {field['Sample']}",
-                        type="secondary"
-                    ):
+            for i, field in enumerate(queryable_fields_list[:12]):
+                with suggestion_cols[i % 2]:
+                    if st.button(f"➕ {field['Field Path']}", key=f"use_field_{field['Field Path']}_{i}", help=f"Type: {field['Type']} | Sample: {field['Sample']}", type="secondary"):
                         current_conditions = st.session_state.get('py_fields', '').strip()
-                        if current_conditions:
-                            st.session_state.py_fields = f"{current_conditions}, {field['Field Path']}"
-                        else:
-                            st.session_state.py_fields = field['Field Path']
+                        st.session_state.py_fields = f"{current_conditions}, {field['Field Path']}" if current_conditions else field['Field Path']
                         st.rerun()
-
+            
             if len(queryable_fields_list) > 12:
                 st.caption(f"... and {len(queryable_fields_list) - 12} more fields available")
 
 
 def generate_enhanced_sql_python_mode(json_data, table_name, json_column, field_conditions):
     """Enhanced SQL generation for Python mode with warnings and disambiguation"""
-    
     try:
-        # Use the enhanced version that returns warnings
         from python_sql_generator import generate_sql_from_json_data_with_warnings
-
-        sql, warnings, disambiguation_details = generate_sql_from_json_data_with_warnings(
-            json_data, table_name, json_column, field_conditions
-        )
-
+        sql, warnings, disambiguation_details = generate_sql_from_json_data_with_warnings(json_data, table_name, json_column, field_conditions)
         return sql, warnings, disambiguation_details
-        
     except ImportError:
-        # Fallback to basic generation
-        try:
-            from python_sql_generator import generate_sql_from_json_data
-            sql = generate_sql_from_json_data(json_data, table_name, json_column, field_conditions)
-            return sql, [], {}
-        except Exception as e:
-            return f"-- Error: {str(e)}", [f"❌ Generation error: {str(e)}"], {}
+        sql = generate_sql_from_json_data(json_data, table_name, json_column, field_conditions)
+        return sql, [], {}
     except Exception as e:
         return f"-- Error: {str(e)}", [f"❌ Generation error: {str(e)}"], {}
 
 
 def render_disambiguation_details(sql, warnings, field_conditions, disambiguation_details):
     """Render disambiguation details in expandable section"""
-    
-    # Show additional details if disambiguation was used
     if warnings and any("Auto-resolved" in w or "ambiguous" in w or "Multi-level" in w for w in warnings):
         with st.expander("🔍 Disambiguation Details", expanded=False):
             st.markdown("**Field Resolution Summary:**")
@@ -772,7 +349,6 @@ def render_disambiguation_details(sql, warnings, field_conditions, disambiguatio
                 if condition:
                     field_name = condition.split('[')[0].strip()
                     simple_name = field_name.split('.')[-1]
-
                     if simple_name in disambiguation_details:
                         conflict_data = disambiguation_details[simple_name]
                         st.markdown(f"**{field_name}:**")
@@ -783,12 +359,10 @@ def render_disambiguation_details(sql, warnings, field_conditions, disambiguatio
 
 def render_database_operations_ui(conn_manager):
     """Enhanced operations UI with fixed session state handling"""
-    
     if not conn_manager:
         st.error("❌ Connection manager not available")
         return
 
-    # Display current mode information
     mode_text = "Enhanced" if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else "Standard"
     mode_color = "#2e7d32" if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else "#1976d2"
     mode_icon = "⚡" if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else "🏔️"
@@ -797,12 +371,11 @@ def render_database_operations_ui(conn_manager):
     <div class="mode-selector">
         <h5 style="color: {mode_color}; margin-bottom: 0.5rem;">{mode_icon} Currently in {mode_text} Mode</h5>
         <p style="margin-bottom: 0; font-size: 0.9rem;">
-            {'🛡️ Session context management + 🚀 Modin acceleration + 📊 Performance tracking + ⚠️ Field disambiguation' if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else '📊 Basic connectivity with standard pandas processing + ⚠️ Field disambiguation'}
+            {'🛡️ Session context management + 🚀 Modin acceleration + 📊 Performance tracking' if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else '📊 Basic connectivity with standard pandas processing'}
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # Custom SQL section with session state fix
     st.markdown("### 📊 Custom SQL Execution")
     st.markdown("""
     <div class="feature-box">
@@ -946,6 +519,7 @@ LIMIT 10;""",
             except Exception as e:
                 st.error(f"❌ Error listing tables: {str(e)}")
 
+    # Enhanced Smart JSON Analysis Section with disambiguation
     # Enhanced Smart JSON Analysis Section with disambiguation
     st.markdown("---")
     st.markdown("### 🧪 Smart JSON Analysis with Disambiguation")
@@ -1243,108 +817,87 @@ def main():
     try:
         st.markdown('<h1 class="main-header">❄️ Enhanced JSON-to-SQL Analyzer for Snowflake</h1>', unsafe_allow_html=True)
         json_data = get_json_data_from_sidebar()
-        if render_performance_info: render_performance_info()
-        main_tab1, main_tab2 = st.tabs(["🐍 **Enhanced Python (Instant SQL Generation)**", "🏔️ **Enhanced Snowflake Database Connection**"])
+        if render_performance_info:
+            render_performance_info()
+
+        main_tab1, main_tab2 = st.tabs(["🐍 **Python Mode (Instant SQL Generation)**", "🏔️ **Snowflake Mode (Live Analysis)**"])
+
         with main_tab1:
-            st.markdown('<h2 class="section-header">🐍 Enhanced SQL Generator with Multiple Execution Options</h2>', unsafe_allow_html=True)
+            st.markdown('<h2 class="section-header">🐍 SQL Generator from Sample JSON</h2>', unsafe_allow_html=True)
             st.markdown("""
             <div class="feature-box">
-                <p><strong>🎯 Enhanced Python SQL Generator:</strong> Analyze JSON structure, generate SQL with smart disambiguation, 
-                and choose from multiple execution options!</p>
+                <p>Analyze your sample JSON structure and instantly generate a portable SQL query. Perfect for development, testing, and creating shareable scripts.</p>
                 <ul>
-                    <li>✅ <strong>Instant SQL Generation</strong> from JSON structure</li>
-                    <li>🧠 <strong>Smart Field Disambiguation</strong> for duplicate field names</li>
-                    <li>⚡ <strong>Multiple Execution Options</strong> - Database or Export</li>
-                    <li>📋 <strong>Export to Multiple Formats</strong> - Python, dbt, Jupyter, PowerBI</li>
+                    <li>✅ <strong>Instant SQL Generation</strong> from the JSON you provide.</li>
+                    <li>🧠 <strong>Smart Field Disambiguation</strong> for handling duplicate field names.</li>
+                    <li>📋 <strong>Export to Multiple Formats</strong> like Python, dbt, and Jupyter.</li>
                 </ul>
             </div>
             """, unsafe_allow_html=True)
+
             if json_data:
                 temp_schema, disambiguation_info = render_enhanced_disambiguation_info(json_data)
-                col_left, col_right = st.columns([2, 1])
-                with col_left:
-                    st.markdown("### 📝 Query Configuration")
-                    input_col1, input_col2 = st.columns(2)
-                    with input_col1:
-                        table_name = st.text_input("Table Name*", key="py_table", placeholder="your_schema.your_table", help="Snowflake table containing your JSON data")
-                        field_conditions = st.text_area("Field Conditions*", height=120, key="py_fields", placeholder="e.g., name, company.name, departments.employees.name", help="Specify JSON fields and optional conditions. Use full paths to avoid ambiguity.")
-                    with input_col2:
-                        json_column = st.text_input("JSON Column Name*", key="py_json_col", placeholder="json_data", help="Name of the column containing JSON data in your table")
-                        st.markdown("**🚀 Execution Options:**")
-                        execution_mode = st.radio("Choose execution mode:", ["📝 Generate SQL Only", "🏔️ Execute on Snowflake", "📋 Export for External Use"], key="py_execution_mode", help="Choose how to handle the generated SQL")
-                    if execution_mode == "🏔️ Execute on Snowflake":
-                        limit_results = st.selectbox("Result Limit", [10, 50, 100, 500, "No Limit"], index=1, key="py_result_limit", help="Limit number of rows returned for preview")
-                    elif execution_mode == "📋 Export for External Use":
-                        export_format = st.selectbox("Export Format:", ["SQL File", "Python Script", "dbt Model", "Jupyter Notebook", "PowerBI Template"], key="py_export_format", help="Choose export format for your generated SQL")
-                    render_enhanced_python_field_suggestions(temp_schema, disambiguation_info)
-                with col_right:
-                    st.markdown("### 🚀 Generation & Execution")
-                    mode_display = execution_mode.split(' ', 1)[1] if ' ' in execution_mode else execution_mode
-                    st.markdown(f"""<div class="execution-mode-box"><h6 style="margin-bottom: 0.5rem; color: #1976d2;">🎯 Current Mode: {mode_display}</h6></div>""", unsafe_allow_html=True)
-                    st.markdown("---")
-                    generate_btn = st.button(f"🚀 {mode_display}", type="primary", use_container_width=True, help=f"Generate SQL and {mode_display.lower()}")
-                    if execution_mode == "🏔️ Execute on Snowflake":
-                        st.markdown("**🔗 Database Connection:**")
-                        conn_available = False; conn_manager = None
-                        if 'unified_connection_manager' in st.session_state: conn_manager = st.session_state.unified_connection_manager
-                        if conn_manager and hasattr(conn_manager, 'is_connected') and conn_manager.is_connected: conn_available = True
-                        if conn_available: st.success("✅ Connected to Snowflake")
-                        else: st.warning("⚠️ No active connection")
-                    elif execution_mode == "📋 Export for External Use":
-                        st.markdown("**📋 Export Ready:**")
-                        st.info("📦 Generate portable code")
-                    if temp_schema:
-                        st.markdown("---")
-                        st.markdown("**📊 JSON Structure Info:**")
+                
+                st.markdown("### 📝 Query Configuration")
+                input_col1, input_col2 = st.columns(2)
+                with input_col1:
+                    table_name = st.text_input("Table Name*", key="py_table", placeholder="your_schema.your_table", help="Snowflake table containing your JSON data")
+                    field_conditions = st.text_area("Field Conditions*", height=120, key="py_fields", placeholder="e.g., name, company.name", help="Specify JSON fields and optional conditions.")
+                with input_col2:
+                    json_column = st.text_input("JSON Column Name*", key="py_json_col", placeholder="json_data", help="Name of the column containing JSON data in your table")
+                    execution_mode = st.radio("Choose Action:", ["📝 Generate SQL Only", "📋 Export for External Use"], key="py_execution_mode", help="Choose how to handle the generated SQL")
+
+                if execution_mode == "📋 Export for External Use":
+                    export_format = st.selectbox("Export Format:", ["SQL File", "Python Script", "dbt Model", "Jupyter Notebook", "PowerBI Template"], key="py_export_format")
+
+                st.markdown("### 🚀 Generation & Execution")
+                mode_display = execution_mode.split(' ', 1)[1]
+                
+                sub_col1, sub_col2 = st.columns([1, 2])
+                with sub_col1:
+                    generate_btn = st.button(f"🚀 {mode_display}", type="primary", use_container_width=True)
+                with sub_col2:
+                    st.markdown(f"""<div class="execution-mode-box" style="text-align:center;"><h6 style="margin-bottom: 0rem; color: #1976d2;">🎯 Current Mode: {mode_display}</h6></div>""", unsafe_allow_html=True)
+
+                if temp_schema:
+                    with st.expander("📊 JSON Structure Info", expanded=False):
                         queryable_count = sum(1 for details in temp_schema.values() if details.get('is_queryable', False))
-                        total_fields = len(temp_schema)
-                        conflict_count = len(disambiguation_info) if disambiguation_info else 0
                         st.metric("Queryable Fields", queryable_count)
-                        st.metric("Total Fields", total_fields)
-                        if conflict_count > 0: st.metric("Name Conflicts", conflict_count)
+                        st.metric("Total Fields", len(temp_schema))
+                        if disambiguation_info:
+                            st.metric("Name Conflicts", len(disambiguation_info))
+                
+                render_enhanced_python_field_suggestions(temp_schema, disambiguation_info)
+
                 if generate_btn:
-                    if not all([table_name, json_column, field_conditions]): st.error("❌ Please fill in all required fields marked with *.")
-                    elif not json_data: st.error("❌ Please provide JSON data via the sidebar first.")
+                    if not all([table_name, json_column, field_conditions]):
+                        st.error("❌ Please fill in all required fields marked with *.")
                     else:
-                        with st.spinner("🔍 Generating SQL with disambiguation analysis..."):
+                        with st.spinner("🔍 Generating SQL..."):
                             try:
                                 sql, warnings, disambiguation_details = generate_enhanced_sql_python_mode(json_data, table_name, json_column, field_conditions)
-                                if warnings: st.markdown("#### 🔔 Disambiguation Alerts")
+                                if warnings:
+                                    st.markdown("#### 🔔 Disambiguation Alerts")
+                                    for warning in warnings: st.warning(warning)
+                                
+                                st.markdown("---")
                                 if execution_mode == "📝 Generate SQL Only":
                                     st.success("✅ SQL Generated Successfully!")
                                     st.code(sql, language="sql")
-                                    st.download_button("📋 Download SQL Query", data=sql, file_name=f"generated_query.sql", mime="text/sql")
-                                elif execution_mode == "🏔️ Execute on Snowflake":
-                                    if conn_available and conn_manager:
-                                        limit_value = safe_get_session_state('py_result_limit', 50)
-                                        limited_sql = sql.rstrip(';') + (f' LIMIT {limit_value};' if limit_value != "No Limit" else ';')
-                                        st.markdown("### 🎯 Query Results")
-                                        with st.expander("📜 Generated SQL Query", expanded=False): st.code(limited_sql, language="sql")
-                                        with st.spinner("⚡ Executing query..."):
-                                            try:
-                                                result_df, exec_error, perf_stats = conn_manager.execute_query_with_performance(limited_sql) if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else conn_manager.execute_query(limited_sql)
-                                                if result_df is not None:
-                                                    st.success("✅ Query executed successfully!")
-                                                    st.dataframe(result_df, use_container_width=True)
-                                                    if not result_df.empty: st.download_button("📥 Download CSV", data=result_df.to_csv(index=False).encode('utf-8'), file_name="results.csv", mime="text/csv")
-                                                else: st.error(f"❌ Query execution failed: {exec_error}")
-                                            except Exception as e: st.error(f"❌ Execution error: {str(e)}")
-                                    else:
-                                        st.warning("⚠️ **Database connection required.**")
-                                        st.info("Please connect via the 'Snowflake Database Connection' tab first.")
+                                    st.download_button("📋 Download SQL Query", data=sql, file_name="generated_query.sql", mime="text/sql")
                                 elif execution_mode == "📋 Export for External Use":
                                     export_format_val = safe_get_session_state('py_export_format', 'SQL File')
                                     st.success(f"📋 {export_format_val} generated successfully!")
                                     export_content = generate_export_content(sql, export_format_val, table_name, field_conditions)
-                                    with st.expander("👀 Export Content Preview", expanded=False): st.code(export_content, language="sql" if "sql" in export_format_val.lower() else "python")
-                                    file_extension = get_file_extension(export_format_val)
-                                    mime_type = get_mime_type(export_format_val)
-                                    st.download_button(f"📥 Download {export_format_val}", data=export_content, file_name=f"export.{file_extension}", mime=mime_type)
-                                render_disambiguation_details(sql, warnings, field_conditions, disambiguation_details)
-                            except Exception as e: st.error(f"❌ SQL generation error: {str(e)}")
-                st.markdown("---")
-                st.markdown("### 💡 Examples & Help")
-                if temp_schema:
+                                    with st.expander("👀 Export Content Preview", expanded=True):
+                                        st.code(export_content, language="sql" if "sql" in export_format_val.lower() else "python")
+                                    st.download_button(f"📥 Download {export_format_val}", data=export_content, file_name=f"export.{get_file_extension(export_format_val)}", mime=get_mime_type(export_format_val))
+                                render_disambiguation_details(sql, warnings, disambiguation_details)
+                            except Exception as e:
+                                st.error(f"❌ SQL generation error: {str(e)}")
+
+                with st.expander("💡 Examples & Help", expanded=False):
+                    if temp_schema:
                     example_col1, example_col2 = st.columns(2)
                     with example_col1:
                         st.markdown("**🎯 Examples for your JSON:**")
@@ -1366,11 +919,9 @@ def main():
                     for ex in examples1: st.code(ex, language="text")
                     with example_cols[1]: examples2 = ["status[=:active], created_date[IS NOT NULL]", "tags[IN:premium|gold], score[>:100]"];
                     for ex in examples2: st.code(ex, language="text")
-                with st.expander("🔧 Advanced Help & Tips", expanded=False):
-                    help_col1, help_col2 = st.columns(2)
-                    with help_col1: st.markdown("**🎯 Field Condition Operators:**"); st.markdown("- `[IS NOT NULL]`, `[=:value]`, `[>:100]`, `[IN:val1|val2]`, `[LIKE:pattern]`")
-                    with help_col2: st.markdown("**💡 Execution Mode Tips:**"); st.markdown("- **📝 SQL Only:** Generate queries without execution.\n- **🏔️ Snowflake:** Live database execution.\n- **📋 Export:** Portable code for external tools.")
-            else: st.info("👆 Provide JSON data via the sidebar to begin analysis and SQL generation.")
+            else:
+                st.info("👆 Provide JSON data via the sidebar to begin.")
+
         with main_tab2:
             st.markdown('<h2 class="section-header">🏔️ Snowflake Database Connection</h2>', unsafe_allow_html=True)
             st.markdown("""<div class="feature-box"><p>Choose the connection mode that best fits your needs. You can switch between modes by disconnecting and reconnecting.</p></div>""", unsafe_allow_html=True)
