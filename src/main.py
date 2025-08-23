@@ -592,208 +592,213 @@ def main():
         ])
 
         with main_tab1:
-            st.markdown('<h2 class="section-header">🐍 Generate SQL from JSON Input with Smart Disambiguation</h2>', unsafe_allow_html=True)
+            st.markdown('<h2 class="section-header">🐍 Enhanced SQL Generator with Results Execution</h2>', unsafe_allow_html=True)
+            
+            # Enhanced description
             st.markdown("""
             <div class="feature-box">
-            <p>Upload or paste your JSON data below to analyze its structure and instantly generate a corresponding Snowflake SQL query.
-            <strong>🎯 Enhanced with Smart Disambiguation:</strong> Automatically handles duplicate field names at different hierarchy levels.</p>
+                <p><strong>🎯 Enhanced Python SQL Generator:</strong> Analyze JSON structure, generate SQL with smart disambiguation, 
+                and <strong>execute queries directly</strong> to see real results!</p>
+                <ul>
+                    <li>✅ <strong>Instant SQL Generation</strong> from JSON structure</li>
+                    <li>🧠 <strong>Smart Field Disambiguation</strong> for duplicate field names</li>
+                    <li>⚡ <strong>Live Query Execution</strong> with results preview</li>
+                    <li>📊 <strong>Downloadable Results</strong> in CSV/JSON format</li>
+                </ul>
             </div>
             """, unsafe_allow_html=True)
 
-            # Sidebar for input method selection
-            st.sidebar.header("📥 Data Input for Enhanced Python Analyzer")
-            input_method = st.sidebar.radio(
-                "Choose your input method:",
-                ["Upload JSON File", "Paste JSON Text"],
-                key="input_method",
-                help="Select how you want to provide your JSON data for analysis with disambiguation support"
-            )
-
-            json_data = None
-
-            if input_method == "Upload JSON File":
-                uploaded_file = st.sidebar.file_uploader(
-                    "Choose a JSON file", type=['json'], help="Max 200MB"
-                )
-                if uploaded_file:
-                    try:
-                        json_data = json.load(uploaded_file)
-                        st.sidebar.success(f"✅ File '{uploaded_file.name}' loaded.")
-                    except Exception as e:
-                        st.sidebar.error(f"Error reading file: {e}")
-                        json_data = None
-            else:
-                json_text = st.sidebar.text_area(
-                    "Paste your JSON here:", height=250, placeholder='{"example": "data"}'
-                )
-                if json_text:
-                    is_valid, _, json_data = validate_json_input(json_text)
-                    if is_valid:
-                        st.sidebar.success("✅ JSON parsed successfully.")
-                    else:
-                        st.sidebar.error("Invalid JSON format.")
-                        json_data = None
-
             if json_data:
-                with st.spinner("Analyzing JSON structure with disambiguation..."):
-                    schema = analyze_json_structure(json_data)
+                # ENHANCED: Add disambiguation info display at the top
+                try:
+                    from python_sql_generator import PythonSQLGenerator
+                    temp_generator = PythonSQLGenerator()
+                    temp_schema = temp_generator.analyze_json_for_sql(json_data)
+                    disambiguation_info = temp_generator.get_multi_level_field_info()
 
-                if not schema:
-                    st.error("❌ Could not analyze JSON structure.")
-                    return
+                    # Show disambiguation alerts if conflicts exist
+                    if disambiguation_info:
+                        st.markdown("#### 🚨 Field Name Conflicts Detected")
+                        
+                        conflict_summary = []
+                        for field_name, conflict_data in disambiguation_info.items():
+                            conflict_count = conflict_data['total_occurrences']
+                            paths = conflict_data['paths']
+                            queryable_options = [opt for opt in paths if opt['schema_entry']['is_queryable']]
 
-                # Create tabs for different features
-                tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                    "⚡ **Smart SQL Generator**",
-                    "📊 **Complete Paths**",
-                    "📋 **Arrays Analysis**",
-                    "🔍 **Queryable Fields**",
-                    "🎨 **JSON Formatter**"
-                ])
+                            conflict_summary.append({
+                                'Field Name': field_name,
+                                'Conflict Count': conflict_count,
+                                'Queryable Options': len(queryable_options),
+                                'Paths': ' | '.join([opt['full_path'] for opt in queryable_options[:3]]),
+                            })
 
-                with tab1:
-                    st.markdown('<h3 class="section-header">⚡ Smart SQL Generator with Disambiguation</h3>', unsafe_allow_html=True)
+                        if conflict_summary:
+                            st.warning(f"⚠️ Found {len(conflict_summary)} field names with multiple locations")
 
-                    # ENHANCED: Add disambiguation info display
-                    if json_data:
-                        # Analyze JSON for disambiguation info
-                        from python_sql_generator import PythonSQLGenerator
-                        temp_generator = PythonSQLGenerator()
-                        temp_schema = temp_generator.analyze_json_for_sql(json_data)
-                        disambiguation_info = temp_generator.get_multi_level_field_info()
+                            with st.expander("🔍 View Conflict Details", expanded=False):
+                                conflicts_df = pd.DataFrame(conflict_summary)
+                                st.dataframe(conflicts_df, use_container_width=True)
 
-                        # Show disambiguation alerts if conflicts exist
-                        if disambiguation_info:
-                            st.markdown("#### 🚨 Field Name Conflicts Detected")
+                                st.markdown("**💡 How disambiguation works:**")
+                                st.markdown("""
+                                - When you specify just a field name (like `name`), the system automatically chooses the **least nested** occurrence
+                                - You can specify the full path (like `company.name` or `departments.name`) to be explicit
+                                - The system will show warnings when ambiguous fields are auto-resolved
+                                """)
+                    else:
+                        st.success("✅ No field name conflicts detected - all field names are unique!")
+                
+                except Exception as e:
+                    st.warning(f"Could not analyze disambiguation info: {e}")
+                    temp_schema = {}
+                    disambiguation_info = {}
 
-                            conflict_summary = []
-                            for field_name, conflict_data in disambiguation_info.items():
-                                conflict_count = conflict_data['total_occurrences']
-                                paths = conflict_data['paths']
-                                queryable_options = [opt for opt in paths if opt['schema_entry']['is_queryable']]
+                # IMPROVED LAYOUT: Two main columns with better proportions
+                col_left, col_right = st.columns([2, 1])
+                
+                with col_left:
+                    st.markdown("### 📝 Query Configuration")
+                    
+                    # Input fields in a more organized layout
+                    input_col1, input_col2 = st.columns(2)
+                    
+                    with input_col1:
+                        table_name = st.text_input(
+                            "Table Name*", 
+                            key="py_table", 
+                            placeholder="your_schema.your_table",
+                            help="Snowflake table containing your JSON data"
+                        )
+                        
+                        field_conditions = st.text_area(
+                            "Field Conditions*", 
+                            height=120, 
+                            key="py_fields",
+                            placeholder="e.g., name, company.name, departments.employees.name",
+                            help="Specify JSON fields and optional conditions. Use full paths to avoid ambiguity."
+                        )
+                    
+                    with input_col2:
+                        json_column = st.text_input(
+                            "JSON Column Name*", 
+                            key="py_json_col", 
+                            placeholder="json_data",
+                            help="Name of the column containing JSON data in your table"
+                        )
+                        
+                        # ENHANCED: Add execution options
+                        st.markdown("**⚡ Execution Options:**")
+                        execute_query = st.checkbox(
+                            "🚀 Execute Query After Generation",
+                            value=True,
+                            key="py_execute_query",
+                            help="Generate SQL and immediately execute it to show results"
+                        )
+                        
+                        if execute_query:
+                            limit_results = st.selectbox(
+                                "Result Limit",
+                                [10, 50, 100, 500, "No Limit"],
+                                index=1,
+                                key="py_result_limit",
+                                help="Limit number of rows returned for preview"
+                            )
 
-                                conflict_summary.append({
-                                    'Field Name': field_name,
-                                    'Conflict Count': conflict_count,
-                                    'Queryable Options': len(queryable_options),
-                                    'Paths': ' | '.join([opt['full_path'] for opt in queryable_options[:3]]),
-                                })
+                    # ENHANCED: Smart field suggestions (moved up for better visibility)
+                    if 'temp_schema' in locals() and temp_schema:
+                        with st.expander("💡 Smart Field Suggestions (Click to Use)", expanded=False):
+                            st.markdown("**🎯 Available queryable fields - click to add:**")
 
-                            if conflict_summary:
-                                st.warning(f"⚠️ Found {len(conflict_summary)} field names with multiple locations")
-
-                                # Show conflicts in expandable section
-                                with st.expander("🔍 View Conflict Details", expanded=False):
-                                    import pandas as pd
-                                    conflicts_df = pd.DataFrame(conflict_summary)
-                                    st.dataframe(conflicts_df, use_container_width=True)
-
-                                    st.markdown("**💡 How disambiguation works:**")
-                                    st.markdown("""
-                                    - When you specify just a field name (like `name`), the system automatically chooses the **least nested** occurrence
-                                    - You can specify the full path (like `company.name` or `departments.name`) to be explicit
-                                    - The system will show warnings when ambiguous fields are auto-resolved
-                                    """)
-                        else:
-                            st.success("✅ No field name conflicts detected - all field names are unique!")
-
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.subheader("Query Parameters")
-                        table_name = st.text_input("Table Name*", key="py_table", placeholder="your_schema.your_table")
-                        json_column = st.text_input("JSON Column Name*", key="py_json_col", placeholder="json_data")
-                        field_conditions = st.text_area("Field Conditions*", height=100, key="py_fields",
-                                                       placeholder="e.g., name, company.name, departments.employees.name")
-
-                        # ENHANCED: Add smart field suggestions with the fix
-                        if json_data and temp_schema:
-                            with st.expander("💡 Smart Field Suggestions", expanded=False):
-                                st.markdown("**Available queryable fields:**")
-
-                                queryable_fields_list = []
-                                for path, details in temp_schema.items():
-                                    if details.get('is_queryable', False):
-                                        field_info = {
-                                            'Field Path': path,
-                                            'Type': details.get('snowflake_type', 'VARIANT'),
-                                            'Sample': str(details.get('sample_value', ''))[:50] + ('...' if len(str(details.get('sample_value', ''))) > 50 else ''),
-                                            'Context': details.get('context_description', 'Root')
-                                        }
-                                        queryable_fields_list.append(field_info)
-
-                                # Define the callback function inside the main function to have access to the scope
-                                def update_field_conditions(suggestion):
-                                    current_conditions = st.session_state.get('py_fields', '').strip()
-                                    if current_conditions:
-                                        st.session_state.py_fields = f"{current_conditions}, {suggestion}"
-                                    else:
-                                        st.session_state.py_fields = suggestion
-
-                                # Show first 10 fields
-                                for field in queryable_fields_list[:10]:
-                                    cols = st.columns([3, 1, 2, 1])
-                                    with cols[0]:
-                                        st.button(
-                                            f"Use: {field['Field Path']}",
-                                            key=f"use_field_{field['Field Path']}",
-                                            on_click=update_field_conditions,
-                                            args=(field['Field Path'],),
-                                            type="secondary"
-                                        )
-                                    with cols[1]:
-                                        st.caption(field['Type'])
-                                    with cols[2]:
-                                        st.caption(field['Sample'])
-                                    with cols[3]:
-                                        st.caption(field['Context'])
-
-                                if len(queryable_fields_list) > 10:
-                                    st.caption(f"... and {len(queryable_fields_list) - 10} more fields")
-
-                    with col2:
-                        st.subheader("💡 Examples & Help")
-
-                        # ENHANCED: Context-aware examples
-                        if json_data and temp_schema:
-                            st.markdown("**🎯 Examples for your JSON:**")
-
-                            # Generate smart examples based on actual data
-                            example_fields = []
+                            queryable_fields_list = []
                             for path, details in temp_schema.items():
                                 if details.get('is_queryable', False):
-                                    example_fields.append(path)
-                                    if len(example_fields) >= 3:
-                                        break
+                                    field_info = {
+                                        'Field Path': path,
+                                        'Type': details.get('snowflake_type', 'VARIANT'),
+                                        'Sample': str(details.get('sample_value', ''))[:50] + ('...' if len(str(details.get('sample_value', ''))) > 50 else ''),
+                                        'Context': details.get('context_description', 'Root')
+                                    }
+                                    queryable_fields_list.append(field_info)
 
-                            if example_fields:
-                                st.code(f"# Basic field selection\n{', '.join(example_fields[:2])}", language="text")
+                            # Show fields in a grid layout
+                            suggestion_cols = st.columns(2)
+                            for i, field in enumerate(queryable_fields_list[:12]):  # Show more fields
+                                col_idx = i % 2
+                                with suggestion_cols[col_idx]:
+                                    if st.button(
+                                        f"➕ {field['Field Path']}",
+                                        key=f"use_field_{field['Field Path']}_{i}",
+                                        help=f"Type: {field['Type']} | Sample: {field['Sample']}",
+                                        type="secondary"
+                                    ):
+                                        current_conditions = st.session_state.get('py_fields', '').strip()
+                                        if current_conditions:
+                                            st.session_state.py_fields = f"{current_conditions}, {field['Field Path']}"
+                                        else:
+                                            st.session_state.py_fields = field['Field Path']
+                                        st.rerun()
 
-                                if len(example_fields) >= 2:
-                                    st.code(f"# With conditions\n{example_fields[0]}[IS NOT NULL], {example_fields[1]}[=:some_value]", language="text")
+                            if len(queryable_fields_list) > 12:
+                                st.caption(f"... and {len(queryable_fields_list) - 12} more fields available")
 
-                                # Show disambiguation examples if conflicts exist
-                                if disambiguation_info:
-                                    conflict_field = list(disambiguation_info.keys())[0]
-                                    options = disambiguation_info[conflict_field]['paths'][:2]
-                                    st.markdown("**🚨 Disambiguation Examples:**")
-                                    st.code(f"# Ambiguous (auto-resolved)\n{conflict_field}", language="text")
-                                    st.code(f"# Explicit paths\n{', '.join([opt['full_path'] for opt in options])}", language="text")
+                with col_right:
+                    st.markdown("### 🚀 Generation & Execution")
+                    
+                    # MOVED: Generate SQL button to the right column
+                    st.markdown("---")
+                    generate_btn = st.button(
+                        "🚀 Generate SQL" + (" & Execute" if st.session_state.get('py_execute_query', True) else ""),
+                        type="primary",
+                        use_container_width=True,
+                        help="Generate SQL from JSON structure" + (" and execute it immediately" if st.session_state.get('py_execute_query', True) else "")
+                    )
+                    
+                    # Connection status for execution
+                    if st.session_state.get('py_execute_query', True):
+                        st.markdown("**🔗 Database Connection:**")
+                        
+                        # Check if we have an active Snowflake connection
+                        conn_available = False
+                        conn_manager = None
+                        
+                        # Look for active unified connection
+                        if 'unified_connection_manager' in st.session_state:
+                            conn_manager = st.session_state.unified_connection_manager
+                            if conn_manager and conn_manager.is_connected:
+                                conn_available = True
+                        
+                        if conn_available:
+                            st.success("✅ Connected to Snowflake")
+                            st.caption(f"Database: {conn_manager.connection_params.get('database', 'N/A')}")
+                            st.caption(f"Schema: {conn_manager.connection_params.get('schema', 'N/A')}")
+                        else:
+                            st.warning("⚠️ No active connection")
+                            st.caption("💡 Connect via Database tab first")
+                    
+                    # Quick stats about current JSON
+                    if 'temp_schema' in locals() and temp_schema:
+                        st.markdown("---")
+                        st.markdown("**📊 JSON Structure Info:**")
+                        
+                        queryable_count = sum(1 for details in temp_schema.values() if details.get('is_queryable', False))
+                        total_fields = len(temp_schema)
+                        conflict_count = len(disambiguation_info) if 'disambiguation_info' in locals() and disambiguation_info else 0
+                        
+                        st.metric("Queryable Fields", queryable_count)
+                        st.metric("Total Fields", total_fields)
+                        if conflict_count > 0:
+                            st.metric("Name Conflicts", conflict_count)
 
-                        # Standard examples
-                        st.markdown("**📋 Standard Examples:**")
-                        examples = [
-                            "name, age, email",
-                            "user.name, user.profile.age[>:18]",
-                            "status[=:active], created_date[IS NOT NULL]",
-                            "tags[IN:premium|gold], score[>:100]"
-                        ]
-                        for ex in examples:
-                            st.code(ex, language="text")
-
-                    # ENHANCED: Generate SQL with warnings
-                    if st.button("🚀 Generate SQL", type="primary"):
-                        if all([table_name, json_column, field_conditions]):
-                            with st.spinner("🔍 Generating SQL with disambiguation analysis..."):
+                # ENHANCED: Generate SQL with results execution
+                if generate_btn:
+                    if not all([table_name, json_column, field_conditions]):
+                        st.error("❌ Please fill in all required fields marked with *.")
+                    elif not json_data:
+                        st.error("❌ Please provide JSON data via the sidebar first.")
+                    else:
+                        with st.spinner("🔍 Generating SQL with disambiguation analysis..."):
+                            try:
                                 # Use the enhanced version that returns warnings
                                 from python_sql_generator import generate_sql_from_json_data_with_warnings
 
@@ -812,12 +817,139 @@ def main():
                                         else:
                                             st.info(warning)
 
-                                # Display the generated SQL
-                                st.markdown("#### 🎯 Generated SQL")
-                                st.code(sql, language="sql")
+                                # ENHANCED: Show SQL in expandable section instead of main area
+                                with st.expander("📜 Generated SQL Query", expanded=False):
+                                    st.code(sql, language="sql")
+                                    
+                                    # Add download button for SQL
+                                    st.download_button(
+                                        "📋 Download SQL Query",
+                                        data=sql,
+                                        file_name=f"generated_query_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
+                                        mime="text/sql",
+                                        help="Download the generated SQL query"
+                                    )
+
+                                # ENHANCED: Execute query if option is enabled
+                                if st.session_state.get('py_execute_query', True):
+                                    if conn_available and conn_manager:
+                                        # Apply result limit if specified
+                                        limit_value = st.session_state.get('py_result_limit', 50)
+                                        if limit_value != "No Limit":
+                                            if not sql.upper().rstrip(';').endswith('LIMIT'):
+                                                # Remove trailing semicolon and add limit
+                                                limited_sql = sql.rstrip(';') + f' LIMIT {limit_value};'
+                                            else:
+                                                limited_sql = sql
+                                        else:
+                                            limited_sql = sql
+
+                                        st.markdown("---")
+                                        st.markdown("### 🎯 Query Results")
+
+                                        with st.spinner("⚡ Executing query and fetching results..."):
+                                            try:
+                                                # Use the appropriate execution method based on connection mode
+                                                if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode:
+                                                    # Enhanced mode with performance tracking
+                                                    result_df, exec_error, perf_stats = conn_manager.execute_query_with_performance(limited_sql)
+                                                    
+                                                    if result_df is not None:
+                                                        st.success("✅ Query executed successfully with enhanced performance tracking!")
+                                                        
+                                                        # Display enhanced performance metrics
+                                                        perf_col1, perf_col2, perf_col3, perf_col4 = st.columns(4)
+                                                        with perf_col1:
+                                                            st.metric("Rows Returned", len(result_df))
+                                                        with perf_col2:
+                                                            st.metric("Columns", len(result_df.columns))
+                                                        with perf_col3:
+                                                            processing_engine = "🚀 Modin" if perf_stats.get('modin_used', False) else "📊 Pandas"
+                                                            st.metric("Engine", processing_engine)
+                                                        with perf_col4:
+                                                            execution_time = perf_stats.get('total_time', 0)
+                                                            st.metric("Execution Time", f"{execution_time:.2f}s")
+
+                                                        # Show results with enhanced formatting
+                                                        st.markdown("#### 📊 Results Preview:")
+                                                        st.dataframe(result_df, use_container_width=True)
+
+                                                        # Enhanced download options
+                                                        if not result_df.empty:
+                                                            download_col1, download_col2 = st.columns(2)
+                                                            
+                                                            with download_col1:
+                                                                csv_data = result_df.to_csv(index=False).encode('utf-8')
+                                                                st.download_button(
+                                                                    "📥 Download CSV",
+                                                                    data=csv_data,
+                                                                    file_name=f"python_sql_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                                                    mime="text/csv"
+                                                                )
+                                                            
+                                                            with download_col2:
+                                                                json_data_export = result_df.to_json(orient='records', indent=2)
+                                                                st.download_button(
+                                                                    "📥 Download JSON",
+                                                                    data=json_data_export,
+                                                                    file_name=f"python_sql_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                                                    mime="application/json"
+                                                                )
+
+                                                        # Show enhanced summary
+                                                        if len(result_df) > 0:
+                                                            st.info(f"✨ **Enhanced Summary:** Successfully processed {len(result_df):,} rows with {len(result_df.columns)} columns in {execution_time:.2f}s using {processing_engine}")
+                                                        
+                                                    else:
+                                                        st.error(f"❌ Query execution failed: {exec_error}")
+                                                        
+                                                else:
+                                                    # Standard mode
+                                                    result_df, exec_error = conn_manager.execute_query(limited_sql)
+                                                    
+                                                    if result_df is not None:
+                                                        st.success("✅ Query executed successfully!")
+                                                        
+                                                        # Display standard metrics
+                                                        metric_col1, metric_col2 = st.columns(2)
+                                                        with metric_col1:
+                                                            st.metric("Rows Returned", len(result_df))
+                                                        with metric_col2:
+                                                            st.metric("Columns", len(result_df.columns))
+
+                                                        # Show results
+                                                        st.markdown("#### 📊 Results Preview:")
+                                                        st.dataframe(result_df, use_container_width=True)
+
+                                                        # Download options
+                                                        if not result_df.empty:
+                                                            csv_data = result_df.to_csv(index=False).encode('utf-8')
+                                                            st.download_button(
+                                                                "📥 Download Results (CSV)",
+                                                                data=csv_data,
+                                                                file_name=f"python_sql_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                                                mime="text/csv"
+                                                            )
+                                                        
+                                                    else:
+                                                        st.error(f"❌ Query execution failed: {exec_error}")
+
+                                            except Exception as e:
+                                                st.error(f"❌ Execution error: {str(e)}")
+                                                st.info("💡 Check your table name, column name, and database permissions.")
+
+                                    else:
+                                        st.warning("⚠️ **Database connection required for query execution**")
+                                        st.markdown("""
+                                        **To execute queries:**
+                                        1. 🏔️ Go to the **Snowflake Database Connection** tab
+                                        2. 🔐 Enter your connection details  
+                                        3. 🔗 Connect to your database
+                                        4. 🔄 Return here to generate and execute queries
+                                        """)
 
                                 # Show additional details if disambiguation was used
-                                if any("Auto-resolved" in w or "ambiguous" in w for w in warnings):
+                                if warnings and any("Auto-resolved" in w or "ambiguous" in w for w in warnings):
                                     with st.expander("🔍 Disambiguation Details", expanded=False):
                                         st.markdown("**Field Resolution Summary:**")
                                         conditions = [c.strip() for c in field_conditions.split(',')]
@@ -832,37 +964,98 @@ def main():
                                                     for opt in conflict_data['paths']:
                                                         status = "✅ Used" if opt['full_path'] in sql else "⏸️ Available"
                                                         st.markdown(f"- {status} `{opt['full_path']}` ({opt['context_description']})")
-                        else:
-                            st.warning("Please fill in all required fields marked with *.")
+                            
+                            except Exception as e:
+                                st.error(f"❌ SQL generation error: {str(e)}")
+                                st.info("💡 Please check your JSON structure and field conditions.")
 
-                with tab2:
-                    st.markdown('<h3 class="section-header">📊 Complete JSON Paths</h3>', unsafe_allow_html=True)
-                    all_paths_df = export_analysis_results(schema).get('all_paths')
-                    if all_paths_df is not None and not all_paths_df.empty:
-                        st.dataframe(all_paths_df, use_container_width=True)
-                    else:
-                        st.info("No paths to display.")
+                # MOVED: Examples section to bottom for better flow
+                st.markdown("---")
+                st.markdown("### 💡 Examples & Help")
+                
+                # ENHANCED: Context-aware examples
+                if 'temp_schema' in locals() and temp_schema:
+                    example_col1, example_col2 = st.columns(2)
+                    
+                    with example_col1:
+                        st.markdown("**🎯 Examples for your JSON:**")
 
-                with tab3:
-                    st.markdown('<h3 class="section-header">📋 Arrays Analysis</h3>', unsafe_allow_html=True)
-                    arrays_df = export_analysis_results(schema).get('arrays')
-                    if arrays_df is not None and not arrays_df.empty:
-                        st.dataframe(arrays_df, use_container_width=True)
-                    else:
-                        st.info("No arrays found in the JSON structure.")
+                        # Generate smart examples based on actual data
+                        example_fields = []
+                        for path, details in temp_schema.items():
+                            if details.get('is_queryable', False):
+                                example_fields.append(path)
+                                if len(example_fields) >= 3:
+                                    break
 
-                with tab4:
-                    st.markdown('<h3 class="section-header">🔍 Queryable Fields</h3>', unsafe_allow_html=True)
-                    queryable_df = export_analysis_results(schema).get('queryable_fields')
-                    if queryable_df is not None and not queryable_df.empty:
-                        st.dataframe(queryable_df, use_container_width=True)
-                    else:
-                        st.info("No queryable fields found.")
+                        if example_fields:
+                            st.code(f"# Basic field selection\n{', '.join(example_fields[:2])}", language="text")
 
-                with tab5:
-                    st.markdown('<h3 class="section-header">🎨 JSON Formatter</h3>', unsafe_allow_html=True)
-                    prettified_json_str = prettify_json(json.dumps(json_data))
-                    st.code(prettified_json_str, language='json')
+                            if len(example_fields) >= 2:
+                                st.code(f"# With conditions\n{example_fields[0]}[IS NOT NULL], {example_fields[1]}[=:some_value]", language="text")
+
+                            # Show disambiguation examples if conflicts exist
+                            if 'disambiguation_info' in locals() and disambiguation_info:
+                                conflict_field = list(disambiguation_info.keys())[0]
+                                options = disambiguation_info[conflict_field]['paths'][:2]
+                                st.markdown("**🚨 Disambiguation Examples:**")
+                                st.code(f"# Ambiguous (auto-resolved)\n{conflict_field}", language="text")
+                                st.code(f"# Explicit paths\n{', '.join([opt['full_path'] for opt in options])}", language="text")
+                    
+                    with example_col2:
+                        st.markdown("**📋 General Examples:**")
+                        examples = [
+                            "name, age, email",
+                            "user.name, user.profile.age[>:18]", 
+                            "status[=:active], created_date[IS NOT NULL]",
+                            "tags[IN:premium|gold], score[>:100]"
+                        ]
+                        for ex in examples:
+                            st.code(ex, language="text")
+                else:
+                    # Standard examples when no JSON is loaded
+                    st.markdown("**📋 Standard Examples:**")
+                    example_cols = st.columns(2)
+                    
+                    with example_cols[0]:
+                        examples1 = [
+                            "name, age, email",
+                            "user.name, user.profile.age[>:18]"
+                        ]
+                        for ex in examples1:
+                            st.code(ex, language="text")
+                            
+                    with example_cols[1]:
+                        examples2 = [
+                            "status[=:active], created_date[IS NOT NULL]",
+                            "tags[IN:premium|gold], score[>:100]"
+                        ]
+                        for ex in examples2:
+                            st.code(ex, language="text")
+
+                # ENHANCED: Additional help section
+                with st.expander("🔧 Advanced Help & Tips", expanded=False):
+                    help_col1, help_col2 = st.columns(2)
+                    
+                    with help_col1:
+                        st.markdown("**🎯 Field Condition Operators:**")
+                        st.markdown("""
+                        - `[IS NOT NULL]` - Field must have a value
+                        - `[=:value]` - Field equals specific value  
+                        - `[>:100]` / `[<:100]` - Numeric comparisons
+                        - `[IN:val1|val2]` - Field in list of values
+                        - `[LIKE:pattern]` - Text pattern matching
+                        """)
+                        
+                    with help_col2:
+                        st.markdown("**💡 Performance Tips:**")
+                        st.markdown("""
+                        - Use specific field paths to avoid ambiguity
+                        - Add conditions to filter data early
+                        - Limit results for large datasets
+                        - Use Enhanced mode for better performance
+                        - Test with small limits first
+                        """)
 
             else:
                 st.info("👆 Provide JSON data via the sidebar to begin analysis and SQL generation with smart disambiguation.")
