@@ -157,7 +157,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 def get_json_data_from_sidebar() -> Optional[Dict]:
     """Handle JSON input from sidebar with error handling and prettify feature"""
     st.sidebar.markdown("## 📁 JSON Data Input")
@@ -231,30 +230,19 @@ def safe_get_session_state(key: str, default: Any = None) -> Any:
 
 
 def parse_field_conditions_enhanced(field_conditions: str) -> List[str]:
-    """
-    ENHANCED FIELD PARSING LOGIC - Fixed to handle multiple fields properly
-    This is likely where the 2-field limitation bug exists
-    """
     if not field_conditions or not field_conditions.strip():
         return []
     
     try:
-        # Debug: Show what we're parsing
         st.info(f"🔍 **Debug: Parsing input:** `{field_conditions}`")
-        
-        # Split by comma and clean each field
         raw_fields = [f.strip() for f in field_conditions.split(',') if f.strip()]
-        
-        # Debug: Show raw split results
         st.info(f"📋 **Debug: Raw fields after split:** {raw_fields}")
-        
         parsed_fields = []
         for i, field in enumerate(raw_fields):
             if field:  # Only add non-empty fields
                 parsed_fields.append(field)
                 st.info(f"✅ **Field {i+1}:** `{field}`")
         
-        # Debug: Show final parsed results
         st.success(f"🎯 **Total fields parsed: {len(parsed_fields)}** - {parsed_fields}")
         
         return parsed_fields
@@ -265,9 +253,6 @@ def parse_field_conditions_enhanced(field_conditions: str) -> List[str]:
 
 
 def count_expected_columns_from_conditions(field_conditions: str, temp_schema: Dict = None, disambiguation_info: Dict = None) -> int:
-    """
-    Count how many columns should be generated based on field conditions and disambiguation
-    """
     try:
         parsed_fields = parse_field_conditions_enhanced(field_conditions)
         total_expected_columns = 0
@@ -299,7 +284,6 @@ def count_expected_columns_from_conditions(field_conditions: str, temp_schema: D
 
 
 def generate_export_content(sql, export_format, table_name, field_conditions=None):
-    """Generate different export formats"""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     if export_format == "SQL File":
@@ -338,19 +322,16 @@ def generate_export_content(sql, export_format, table_name, field_conditions=Non
 
 
 def get_file_extension(export_format):
-    """Get file extension for export format"""
     extensions = { "SQL File": "sql", "Python Script": "py", "dbt Model": "sql", "Jupyter Notebook": "ipynb", "PowerBI Template": "txt" }
     return extensions.get(export_format, "txt")
 
 
 def get_mime_type(export_format):
-    """Get MIME type for export format"""
     mime_types = { "SQL File": "text/sql", "Python Script": "text/x-python", "dbt Model": "text/sql", "Jupyter Notebook": "application/json", "PowerBI Template": "text/plain" }
     return mime_types.get(export_format, "text/plain")
 
 
 def render_enhanced_disambiguation_info(json_data):
-    """Render enhanced disambiguation info for Python mode"""
     try:
         from python_sql_generator import PythonSQLGenerator
         temp_generator = PythonSQLGenerator()
@@ -386,7 +367,6 @@ def render_enhanced_disambiguation_info(json_data):
 
 
 def render_enhanced_python_field_suggestions(temp_schema, disambiguation_info):
-    """Enhanced field suggestions for Python mode with disambiguation"""
     if temp_schema:
         with st.expander("💡 Smart Field Suggestions (Click to Use)", expanded=True):
             queryable_fields_list = []
@@ -411,17 +391,14 @@ def render_enhanced_python_field_suggestions(temp_schema, disambiguation_info):
 
 
 def generate_enhanced_sql_python_mode(json_data, table_name, json_column, field_conditions):
-    """Enhanced SQL generation for Python mode with warnings and disambiguation"""
     try:
         from python_sql_generator import generate_sql_from_json_data_with_warnings
         sql, warnings, disambiguation_details = generate_sql_from_json_data_with_warnings(json_data, table_name, json_column, field_conditions)
         return sql, warnings, disambiguation_details
     except ImportError:
         try:
-            # Fallback: Use basic generator with enhanced field parsing
             sql = generate_sql_from_json_data(json_data, table_name, json_column, field_conditions)
             
-            # Debug: Count SELECT clauses in generated SQL
             select_count = sql.count("json_data:$")
             st.info(f"🔍 **Debug: Generated SQL has {select_count} field extractions**")
             
@@ -433,7 +410,6 @@ def generate_enhanced_sql_python_mode(json_data, table_name, json_column, field_
 
 
 def render_disambiguation_details(sql, warnings, field_conditions, disambiguation_details):
-    """Render disambiguation details in expandable section"""
     if warnings and any("Auto-resolved" in w or "ambiguous" in w or "Multi-level" in w for w in warnings):
         with st.expander("🔍 Disambiguation Details", expanded=False):
             st.markdown("**Field Resolution Summary:**")
@@ -451,9 +427,6 @@ def render_disambiguation_details(sql, warnings, field_conditions, disambiguatio
 
 
 def render_enhanced_snowflake_ui(conn_manager):
-    """
-    ENHANCED SNOWFLAKE UI - Matching Python Mode Experience
-    """
     if not conn_manager:
         st.error("❌ Connection manager not available")
         return
@@ -490,7 +463,6 @@ def render_enhanced_snowflake_ui(conn_manager):
 
 
 def render_smart_json_analysis_ui(conn_manager):
-    """Enhanced Smart JSON Analysis UI matching Python mode"""
     st.markdown("### 🧪 Smart JSON Analysis with Live Database")
     
     if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode:
@@ -501,7 +473,6 @@ def render_smart_json_analysis_ui(conn_manager):
                 <li><strong>✅ Live database sampling</strong> - Real-time JSON schema analysis</li>
                 <li><strong>🚀 Modin acceleration</strong> for large datasets</li>
                 <li><strong>📊 Real-time performance tracking</strong> during analysis</li>
-                <li><strong>🏷️ Smart table name resolution</strong> - Works with partial names</li>
                 <li><strong>⚠️ Field disambiguation support</strong> - Handles duplicate field names</li>
                 <li><strong>💡 Intelligent field suggestions</strong> based on your actual data</li>
             </ul>
@@ -520,7 +491,6 @@ def render_smart_json_analysis_ui(conn_manager):
         </div>
         """, unsafe_allow_html=True)
 
-    # Query Configuration Section - Similar to Python mode
     st.markdown("### 📝 Database Query Configuration")
     input_col1, input_col2 = st.columns(2)
     
@@ -818,7 +788,7 @@ def render_custom_sql_execution_ui(conn_manager):
         <ul>
             <li><strong>📋 Exploring tables:</strong> <code>SHOW TABLES</code> or <code>SELECT * FROM INFORMATION_SCHEMA.TABLES</code></li>
             <li><strong>🔍 Describing structure:</strong> <code>DESCRIBE TABLE your_table</code></li>
-            <li><strong>📊 Testing queries:</strong> <code>SELECT * FROM your_table LIMIT 5</code></li>
+            <li><strong>📊 Testing queries:</strong> <code>SELECT * FROM your_table LIMIT 10</code></li>
         </ul>
     </div>
     """, unsafe_allow_html=True)
@@ -957,7 +927,6 @@ LIMIT 10;""",
 
 
 def render_connection_management_ui(conn_manager):
-    """Connection management UI"""
     st.markdown("### 🔧 Connection Management")
     
     col7, col8, col9 = st.columns(3)
@@ -1215,7 +1184,6 @@ def main():
             </div>
             <hr style="margin: 2rem 0; border: 1px solid #e9ecef;">
             <p><small>
-                <strong>🎯 Fixed Issues:</strong> Multi-field parsing now works properly!<br/>
                 <strong>⚡ Enhanced UI:</strong> Snowflake mode now matches Python mode experience<br/>
                 <strong>📋 Debug Tools:</strong> Field parsing analysis and column count verification
             </small></p>
