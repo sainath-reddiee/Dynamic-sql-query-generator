@@ -177,15 +177,20 @@ def get_json_data_from_sidebar() -> Optional[Dict]:
             key="json_input_text"
         )
         
-        if st.sidebar.button("🎨 Prettify JSON"):
-            if json_text.strip():
-                try:
-                    parsed_json = json.loads(json_text)
-                    pretty_json = json.dumps(parsed_json, indent=4)
-                    st.session_state.json_input_text = pretty_json
-                    st.rerun()
-                except json.JSONDecodeError:
-                    st.sidebar.warning("⚠️ Invalid JSON. Cannot prettify.")
+        # Check if we should show prettified version
+display_text = ""
+if st.session_state.get('show_prettified', False):
+    display_text = st.session_state.get('prettified_json', '')
+    # Reset the flag
+    st.session_state.show_prettified = False
+
+json_text = st.sidebar.text_area(
+    "Paste your JSON data:",
+    value=display_text,  # Use the prettified text if available
+    height=200,
+    placeholder='{\n  "name": "John Doe",\n  "age": 30,\n  "email": "john@example.com"\n}',
+    key="json_input_text"
+)
         
         if json_text.strip():
             try:
@@ -298,17 +303,21 @@ def generate_export_content(sql, export_format, table_name, field_conditions=Non
     elif export_format == "Python Script":
         return f"""#!/usr/bin/env python3
 """
-    
     elif export_format == "dbt Model":
-        model_name = table_name.split('.')[-1].lower().replace('-', '_')
-        return f"""{{{{
+    model_name = table_name.split('.')[-1].lower().replace('-', '_')
+    return f"""{{{{
   config(
     materialized='view',
     description='JSON analysis model for {table_name}'
   )
 }}}}
-"""
-    
+
+-- Generated dbt model for {table_name}
+-- Fields: {field_conditions or 'N/A'}
+-- Generated: {timestamp}
+
+{sql}
+""" 
     elif export_format == "Jupyter Notebook":
         notebook_content = { "cells": [ ], "metadata": { } }
         return json.dumps(notebook_content, indent=2)
