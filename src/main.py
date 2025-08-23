@@ -217,7 +217,6 @@ def get_json_data_from_sidebar() -> Optional[Dict]:
 
 
 def safe_get_session_state(key: str, default: Any = None) -> Any:
-    """Safely get value from session state with default"""
     try:
         return st.session_state.get(key, default)
     except Exception:
@@ -225,10 +224,7 @@ def safe_get_session_state(key: str, default: Any = None) -> Any:
 
 
 def generate_mock_results_from_json(json_data, field_conditions, num_rows=10):
-    """Generate mock results based on JSON structure and field conditions"""
-    import pandas as pd
-    
-    # Parse field conditions to get column names
+    import pandas as pd    
     fields = []
     for condition in field_conditions.split(','):
         field = condition.strip().split('[')[0].strip()
@@ -263,7 +259,6 @@ def generate_mock_results_from_json(json_data, field_conditions, num_rows=10):
             return None
     
     for field in fields:
-        # Try to find actual sample from JSON
         sample_value = find_sample_value(json_data, field)
         
         if sample_value is not None:
@@ -327,7 +322,6 @@ def generate_mock_results_from_json(json_data, field_conditions, num_rows=10):
 
 
 def generate_export_content(sql, export_format, table_name, field_conditions=None):
-    """Generate different export formats"""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     if export_format == "SQL File":
@@ -797,9 +791,7 @@ def render_enhanced_disambiguation_info(json_data):
         return {}, {}
 
 
-def render_enhanced_python_field_suggestions(temp_schema, disambiguation_info):
-    """Enhanced field suggestions for Python mode with disambiguation"""
-    
+def render_enhanced_python_field_suggestions(temp_schema, disambiguation_info):    
     if temp_schema:
         with st.expander("💡 Smart Field Suggestions (Click to Use)", expanded=False):
             st.markdown("**🎯 Available queryable fields - click to add:**")
@@ -837,9 +829,7 @@ def render_enhanced_python_field_suggestions(temp_schema, disambiguation_info):
                 st.caption(f"... and {len(queryable_fields_list) - 12} more fields available")
 
 
-def generate_enhanced_sql_python_mode(json_data, table_name, json_column, field_conditions):
-    """Enhanced SQL generation for Python mode with warnings and disambiguation"""
-    
+def generate_enhanced_sql_python_mode(json_data, table_name, json_column, field_conditions):    
     try:
         # Use the enhanced version that returns warnings
         from python_sql_generator import generate_sql_from_json_data_with_warnings
@@ -851,7 +841,6 @@ def generate_enhanced_sql_python_mode(json_data, table_name, json_column, field_
         return sql, warnings, disambiguation_details
         
     except ImportError:
-        # Fallback to basic generation
         try:
             from python_sql_generator import generate_sql_from_json_data
             sql = generate_sql_from_json_data(json_data, table_name, json_column, field_conditions)
@@ -862,10 +851,7 @@ def generate_enhanced_sql_python_mode(json_data, table_name, json_column, field_
         return f"-- Error: {str(e)}", [f"❌ Generation error: {str(e)}"], {}
 
 
-def render_disambiguation_details(sql, warnings, field_conditions, disambiguation_details):
-    """Render disambiguation details in expandable section"""
-    
-    # Show additional details if disambiguation was used
+def render_disambiguation_details(sql, warnings, field_conditions, disambiguation_details):    
     if warnings and any("Auto-resolved" in w or "ambiguous" in w or "Multi-level" in w for w in warnings):
         with st.expander("🔍 Disambiguation Details", expanded=False):
             st.markdown("**Field Resolution Summary:**")
@@ -883,9 +869,7 @@ def render_disambiguation_details(sql, warnings, field_conditions, disambiguatio
                             st.markdown(f"- {status} `{opt['full_path']}` ({opt['context_description']})")
 
 
-def render_database_operations_ui(conn_manager):
-    """Enhanced operations UI with fixed session state handling"""
-    
+def render_database_operations_ui(conn_manager):    
     if not conn_manager:
         st.error("❌ Connection manager not available")
         return
