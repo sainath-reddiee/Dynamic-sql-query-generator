@@ -1220,13 +1220,36 @@ LIMIT 10;""",
         analyze_and_execute = st.button(f"🚀 Analyze & Execute ({mode_text} Mode)", type="primary")
 
         if analyze_and_execute and all([table_name, json_column, field_conditions]):
-            try:
-                # Generate SQL using the enhanced universal database-driven analysis
-                with st.spinner(f"⚡ {'Enhanced' if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else 'Standard'} analysis with disambiguation..."):
-                    if generate_database_driven_sql:
-                        generated_sql, sql_error = generate_database_driven_sql(
-                            conn_manager, table_name, json_column, field_conditions
-                        )
+    try:
+        generated_sql = None
+        sql_error = None
+        
+        with st.spinner("⚡ Fetching live data sample and generating unified SQL..."):
+            # 1. Fetch a single valid JSON record from Snowflake to analyze its structure.
+            sample_query = f"SELECT TOP 1 {json_column} FROM {table_name} WHERE IS_JSON({json_column});"
+            sample_df, fetch_error = conn_manager.execute_query(sample_query)
+
+            if fetch_error or sample_df is None or sample_df.empty:
+                sql_error = f"Failed to fetch a sample JSON record from the database. Error: {fetch_error}"
+            else:
+                try:
+                    # Extract the JSON text and parse it into a dictionary
+                    sample_json_text = sample_df.iloc[0, 0]
+                    sample_json_data = json.loads(sample_json_text)
+                    
+                    # 2. Call the reliable Python-mode SQL generator with the live sample data.
+                    generated_sql, warnings, disambiguation_details = generate_enhanced_sql_python_mode(
+                        sample_json_data, table_name, json_column, field_conditions
+                    )
+                    # Note: You can optionally display the `warnings` here if you want.
+                    
+                except Exception as e:
+                    sql_error = f"Error processing the fetched JSON sample: {str(e)}"
+
+        # This part for executing the generated SQL remains largely the same
+        if generated_sql and not sql_error:
+            st.success("✅ Unified SQL Generated Successfully from Live Data!")
+            st.code(generated_sql, language="sql")
                     else:
                         generated_sql, sql_error = None, "Function not available"
 
