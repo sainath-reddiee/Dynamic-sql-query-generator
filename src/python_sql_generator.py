@@ -1,977 +1,1231 @@
+import streamlit as st
 import json
-from typing import Dict, Any, List, Optional, Tuple
-import re
+import pandas as pd
+from typing import Dict, Any, List, Optional
+from datetime import datetime, timedelta
 import logging
+import os
+import random
 
+# Import all required modules from the 'src' directory
+try:
+    from python_sql_generator import generate_sql_from_json_data
+except ImportError:
+    st.error("❌ Missing python_sql_generator module")
+    st.stop()
+
+# UNIFIED: Import the new unified connector instead of both separate ones
+try:
+    from unified_snowflake_connector import (
+        UnifiedSnowflakeConnector,
+        render_unified_connection_ui,
+        render_performance_info,
+        render_performance_metrics,
+        MODIN_AVAILABLE,
+        SNOWFLAKE_AVAILABLE
+    )
+except ImportError:
+    st.warning("⚠️ Unified Snowflake connector not available - database features will be limited")
+    UnifiedSnowflakeConnector = None
+    render_unified_connection_ui = None
+    render_performance_info = lambda: st.info("Performance info not available")
+    render_performance_metrics = lambda x: None
+    MODIN_AVAILABLE = False
+    SNOWFLAKE_AVAILABLE = False
+
+try:
+    from universal_db_analyzer import (
+        generate_database_driven_sql,
+        analyze_database_json_schema_universal,
+        render_enhanced_database_json_preview,
+        test_database_connectivity,
+        render_multi_level_helper_ui,
+        render_enhanced_field_suggestions
+    )
+except ImportError:
+    st.warning("⚠️ Universal DB analyzer not available - some database features will be limited")
+    generate_database_driven_sql = None
+    analyze_database_json_schema_universal = None
+    render_enhanced_database_json_preview = lambda x, y: None
+    test_database_connectivity = lambda x: (False, "Test not available")
+    render_multi_level_helper_ui = lambda x, y: None
+    render_enhanced_field_suggestions = lambda x, y: []
+
+try:
+    from json_analyzer import analyze_json_structure
+    from utils import (
+        find_arrays, find_nested_objects,
+        find_queryable_fields, prettify_json, validate_json_input,
+        export_analysis_results
+    )
+    from sql_generator import generate_procedure_examples, generate_sql_preview
+    from config import config
+except ImportError as e:
+    st.warning(f"⚠️ Some utility modules not available: {e}")
+    # Create fallback config
+    class Config:
+        APP_NAME = "JSON-to-SQL Analyzer"
+    config = Config()
+
+# Configure logging
 logger = logging.getLogger(__name__)
 
+# Page configuration
+st.set_page_config(
+    page_title=f"❄️ {getattr(config, 'APP_NAME', 'JSON-to-SQL Analyzer')}",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-class PythonSQLGenerator:
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+        font-weight: 600;
+    }
+    .section-header {
+        font-size: 1.5rem;
+        color: #ff7f0e;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+        font-weight: 500;
+    }
+    .feature-box {
+        background: linear-gradient(145deg, #f0f2f6, #ffffff);
+        padding: 1.5rem;
+        border-radius: 0.8rem;
+        margin: 1rem 0;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        border: 1px solid #e1e5e9;
+    }
+    .metric-card {
+        background: linear-gradient(145deg, #ffffff, #f8f9fa);
+        padding: 1rem;
+        border-radius: 0.6rem;
+        text-align: center;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        border: 1px solid #e9ecef;
+    }
+    .footer {
+        text-align: center;
+        padding: 2rem;
+        margin-top: 3rem;
+        border-top: 2px solid #e9ecef;
+        color: #6c757d;
+        font-size: 0.9rem;
+    }
+    .enhanced-box {
+        background: linear-gradient(145deg, #e8f5e8, #f1f8e9);
+        padding: 1.5rem;
+        border-radius: 10px;
+        border: 2px solid #81c784;
+        margin-bottom: 1rem;
+    }
+    .mode-selector {
+        background: linear-gradient(145deg, #fff3e0, #fafafa);
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #ffb74d;
+        margin: 1rem 0;
+    }
+    .disambiguation-alert {
+        background: linear-gradient(145deg, #fff3e0, #ffeaa7);
+        padding: 1rem;
+        border-radius: 8px;
+        border: 2px solid #fdcb6e;
+        margin: 1rem 0;
+    }
+    .execution-mode-box {
+        background: linear-gradient(145deg, #e3f2fd, #f8f9ff);
+        padding: 1.5rem;
+        border-radius: 8px;
+        border: 2px solid #64b5f6;
+        margin: 0.5rem 0;
+    }
+    .field-counter-box {
+        background: linear-gradient(145deg, #e8f5e8, #f0f8ff);
+        padding: 1rem;
+        border-radius: 6px;
+        border: 1px solid #81c784;
+        margin: 0.5rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+def get_json_data_from_sidebar() -> Optional[Dict]:
+    """Handle JSON input from sidebar with error handling and prettify feature"""
+    st.sidebar.markdown("## 📁 JSON Data Input")
+    
+    input_method = st.sidebar.radio(
+        "Choose input method:",
+        ["📝 Paste JSON", "📁 Upload File"],
+        key="json_input_method"
+    )
+    
+    json_data = None
+    
+    if input_method == "📝 Paste JSON":
+        json_text = st.sidebar.text_area(
+            "Paste your JSON data:",
+            height=200,
+            placeholder='{\n  "name": "John Doe",\n  "age": 30,\n  "email": "john@example.com"\n}',
+            key="json_input_text"
+        )
+        
+        if st.sidebar.button("🎨 Prettify JSON"):
+            if json_text.strip():
+                try:
+                    parsed_json = json.loads(json_text)
+                    pretty_json = json.dumps(parsed_json, indent=4)
+                    st.session_state.json_input_text = pretty_json
+                    st.rerun()
+                except json.JSONDecodeError:
+                    st.sidebar.warning("⚠️ Invalid JSON. Cannot prettify.")
+        
+        if json_text.strip():
+            try:
+                json_data = json.loads(json_text)
+                st.sidebar.success("✅ Valid JSON loaded")
+            except json.JSONDecodeError as e:
+                st.sidebar.error(f"❌ Invalid JSON: {e}")
+                return None
+    
+    elif input_method == "📁 Upload File":
+        uploaded_file = st.sidebar.file_uploader(
+            "Choose a JSON file:",
+            type=['json'],
+            key="json_file_upload"
+        )
+        
+        if uploaded_file is not None:
+            try:
+                json_data = json.load(uploaded_file)
+                st.sidebar.success("✅ JSON file loaded successfully")
+            except json.JSONDecodeError as e:
+                st.sidebar.error(f"❌ Invalid JSON file: {e}")
+                return None
+            except Exception as e:
+                st.sidebar.error(f"❌ Error reading file: {e}")
+                return None
+    
+    if json_data:
+        with st.sidebar.expander("👀 JSON Preview", expanded=False):
+            st.json(json_data, expanded=False)
+        st.session_state['json_data'] = json_data
+    
+    return json_data
+
+
+def safe_get_session_state(key: str, default: Any = None) -> Any:
+    """Safely get value from session state with default"""
+    try:
+        return st.session_state.get(key, default)
+    except Exception:
+        return default
+
+
+def parse_field_conditions_enhanced(field_conditions: str) -> List[str]:
     """
-    ENHANCED: SQL Generator with multi-level field detection
-    - When user specifies 'name', finds ALL occurrences across all levels
-    - Generates comprehensive SQL that captures all field instances
-    - Creates meaningful aliases for each level occurrence
+    ENHANCED FIELD PARSING LOGIC - Fixed to handle multiple fields properly
+    This is likely where the 2-field limitation bug exists
     """
+    if not field_conditions or not field_conditions.strip():
+        return []
     
-    def __init__(self):
-        self.flatten_counter = 0
-        self.array_hierarchy = []
-        self.flatten_alias_map = {}
-        self.multi_level_fields = {}  # Track fields that appear at multiple levels
-        self.path_usage_tracker = {}
-    
-    def analyze_json_for_sql(self, json_obj: Any, parent_path: str = "") -> Dict[str, Dict]:
-        """
-        ENHANCED: Analyze JSON structure with multi-level field tracking
-        """
-        schema = {}
-        field_name_tracker = {}  # Track where each field name appears
+    try:
+        # Debug: Show what we're parsing
+        st.info(f"🔍 **Debug: Parsing input:** `{field_conditions}`")
         
-        def traverse_json(obj: Any, path: str = "", depth: int = 0, in_array_context: List[str] = []):
-            if isinstance(obj, dict):
-                for key, value in obj.items():
-                    new_path = f"{path}.{key}" if path else key
-                    current_type = type(value).__name__
-                    
-                    # Track field name occurrences for multi-level detection
-                    if key not in field_name_tracker:
-                        field_name_tracker[key] = []
-                    field_name_tracker[key].append({
-                        'full_path': new_path,
-                        'depth': depth,
-                        'in_array': len(in_array_context) > 0,
-                        'array_context': in_array_context.copy(),
-                        'parent_path': path,
-                        'context_description': self._get_context_description(new_path, in_array_context)
-                    })
-                    
-                    is_queryable = not isinstance(value, (dict, list)) or (
-                        isinstance(value, list) and len(value) > 0 and not isinstance(value[0], (dict, list))
-                    )
-                    
-                    schema_entry = {
-                        "type": current_type,
-                        "snowflake_type": self._get_snowflake_type(current_type),
-                        "is_queryable": is_queryable,
-                        "is_array": isinstance(value, list),
-                        "is_nested_object": isinstance(value, dict),
-                        "array_context": in_array_context.copy(),
-                        "depth": depth,
-                        "full_path": new_path,
-                        "field_name": key,
-                        "parent_context": path.split('.')[-1] if path else 'root',
-                        "sample_value": str(value)[:100] if len(str(value)) <= 100 else str(value)[:100] + "...",
-                        "context_description": self._get_context_description(new_path, in_array_context)
-                    }
-                    
-                    schema[new_path] = schema_entry
-                    
-                    if isinstance(value, dict):
-                        traverse_json(value, new_path, depth + 1, in_array_context)
-                    elif isinstance(value, list) and value:
-                        if isinstance(value[0], (dict, list)):
-                            new_array_context = in_array_context + [new_path]
-                            traverse_json(value[0], new_path, depth + 1, new_array_context)
-                        
-            elif isinstance(obj, list) and obj:
-                if isinstance(obj[0], (dict, list)):
-                    new_array_context = in_array_context + [path] if path else in_array_context
-                    traverse_json(obj[0], path, depth, new_array_context)
+        # Split by comma and clean each field
+        raw_fields = [f.strip() for f in field_conditions.split(',') if f.strip()]
         
-        traverse_json(json_obj, parent_path)
+        # Debug: Show raw split results
+        st.info(f"📋 **Debug: Raw fields after split:** {raw_fields}")
         
-        # Generate multi-level field information
-        self.multi_level_fields = self._create_multi_level_field_map(field_name_tracker, schema)
+        parsed_fields = []
+        for i, field in enumerate(raw_fields):
+            if field:  # Only add non-empty fields
+                parsed_fields.append(field)
+                st.info(f"✅ **Field {i+1}:** `{field}`")
         
-        return schema
-    
-    def _get_context_description(self, full_path: str, array_context: List[str]) -> str:
-        """Generate human-readable context description"""
-        parts = full_path.split('.')
-        field_name = parts[-1]
+        # Debug: Show final parsed results
+        st.success(f"🎯 **Total fields parsed: {len(parsed_fields)}** - {parsed_fields}")
         
-        if not array_context:
-            if len(parts) == 1:
-                return f"{field_name}_company_level"
+        return parsed_fields
+        
+    except Exception as e:
+        st.error(f"❌ Field parsing error: {str(e)}")
+        return []
+
+
+def count_expected_columns_from_conditions(field_conditions: str, temp_schema: Dict = None, disambiguation_info: Dict = None) -> int:
+    """
+    Count how many columns should be generated based on field conditions and disambiguation
+    """
+    try:
+        parsed_fields = parse_field_conditions_enhanced(field_conditions)
+        total_expected_columns = 0
+        
+        st.markdown("#### 🔢 Expected Column Count Analysis")
+        
+        for field in parsed_fields:
+            field_name = field.split('[')[0].strip()  # Remove conditions like [IS NOT NULL]
+            simple_name = field_name.split('.')[-1]  # Get simple field name
+            
+            # Check if this field has disambiguation (multiple locations)
+            if disambiguation_info and simple_name in disambiguation_info:
+                field_data = disambiguation_info[simple_name]
+                field_count = len(field_data['paths'])
+                total_expected_columns += field_count
+                st.info(f"🎯 **{field_name}** → **{field_count} columns** (multi-level field)")
+                for path_info in field_data['paths']:
+                    st.caption(f"   - `{path_info['alias']}` from `{path_info['full_path']}`")
             else:
-                parent = parts[-2]
-                return f"{field_name}_under_{parent}"
-        elif len(array_context) == 1:
-            array_name = array_context[0].split('.')[-1]
-            return f"{field_name}_in_each_{array_name.rstrip('s')}"
-        else:
-            nested_arrays = [ctx.split('.')[-1] for ctx in array_context]
-            return f"{field_name}_in_nested_{nested_arrays[-1].rstrip('s')}"
+                total_expected_columns += 1
+                st.info(f"📍 **{field_name}** → **1 column** (single location)")
+        
+        st.success(f"🎯 **Total Expected Columns: {total_expected_columns}**")
+        return total_expected_columns
+        
+    except Exception as e:
+        st.error(f"❌ Column count analysis failed: {str(e)}")
+        return 0
+
+
+def generate_export_content(sql, export_format, table_name, field_conditions=None):
+    """Generate different export formats"""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    def _create_multi_level_field_map(self, field_name_tracker: Dict, schema: Dict) -> Dict:
-        """Create multi-level field map for fields that appear at multiple levels"""
-        multi_level_map = {}
-        
-        for field_name, occurrences in field_name_tracker.items():
-            queryable_occurrences = [
-                occ for occ in occurrences 
-                if schema[occ['full_path']]['is_queryable']
-            ]
-            
-            if len(queryable_occurrences) > 1:
-                # Field appears at multiple levels - create multi-level entry
-                multi_level_map[field_name] = {
-                    'total_occurrences': len(queryable_occurrences),
-                    'paths': []
-                }
-                
-                for occ in queryable_occurrences:
-                    full_path = occ['full_path']
-                    schema_entry = schema[full_path]
-                    
-                    multi_level_map[field_name]['paths'].append({
-                        'full_path': full_path,
-                        'alias': schema_entry['context_description'],
-                        'depth': occ['depth'],
-                        'array_context': occ['array_context'],
-                        'context_description': occ['context_description'],
-                        'schema_entry': schema_entry
-                    })
-                
-                # Sort by depth for consistent ordering
-                multi_level_map[field_name]['paths'].sort(key=lambda x: (x['depth'], x['full_path']))
-        
-        return multi_level_map
+    if export_format == "SQL File":
+        return f"""-- Generated SQL Query for JSON Analysis
+-- Table: {table_name}
+-- Fields: {field_conditions or 'N/A'}
+-- Generated: {timestamp}
+
+{sql}
+"""
     
-    def get_multi_level_field_info(self) -> Dict:
-        """Get multi-level field information for UI display"""
-        return self.multi_level_fields
+    elif export_format == "Python Script":
+        return f"""#!/usr/bin/env python3
+"""
     
-    def _get_snowflake_type(self, python_type: str) -> str:
-        """Map Python type to Snowflake type"""
-        type_mapping = {
-            'str': 'VARCHAR',
-            'int': 'NUMBER',
-            'float': 'FLOAT',
-            'bool': 'BOOLEAN',
-            'list': 'ARRAY',
-            'dict': 'OBJECT',
-            'NoneType': 'VARCHAR'
-        }
-        return type_mapping.get(python_type, 'VARIANT')
+    elif export_format == "dbt Model":
+        model_name = table_name.split('.')[-1].lower().replace('-', '_')
+        return f"""{{{{
+  config(
+    materialized='view',
+    description='JSON analysis model for {table_name}'
+  )
+}}}}
+"""
     
-    def generate_dynamic_sql(self, table_name: str, json_column: str, field_conditions: str, schema: Dict[str, Dict]) -> str:
-        """
-        ENHANCED: Generate SQL with multi-level field detection
-        """
-        try:
-            # Reset tracking for each SQL generation
-            self.flatten_alias_map = {}
-            self.path_usage_tracker = {}
-            
-            # Parse field conditions with multi-level detection
-            fields_info, warnings = self._parse_field_conditions_with_multi_level(field_conditions, schema)
-            
-            if not fields_info:
-                return "-- Error: No valid fields found in conditions"
-            
-            # Build SQL components
-            select_clause = self._build_select_clause_multi_level(fields_info, schema, json_column)
-            from_clause = self._build_from_clause_optimized(table_name, json_column, fields_info, schema)
-            where_clause = self._build_where_clause_multi_level(fields_info, schema, json_column)
-            
-            sql_parts = [select_clause, from_clause]
-            if where_clause.strip():
-                sql_parts.append(where_clause)
-            
-            return '\n'.join(sql_parts) + ';'
-            
-        except Exception as e:
-            logger.error(f"Enhanced SQL generation failed: {e}")
-            return f"-- Error generating SQL: {str(e)}"
-    
-    def generate_sql_with_warnings(self, table_name: str, json_column: str, field_conditions: str, schema: Dict[str, Dict]) -> Tuple[str, List[str]]:
-        """
-        ENHANCED: Generate SQL with multi-level field warnings
-        Returns: (sql, warnings)
-        """
-        try:
-            # Reset tracking
-            self.flatten_alias_map = {}
-            self.path_usage_tracker = {}
-            
-            # Parse field conditions with multi-level detection
-            fields_info, parsing_warnings = self._parse_field_conditions_with_multi_level(field_conditions, schema)
-            
-            # Get multi-level field warnings
-            multi_level_warnings = self._get_multi_level_warnings(field_conditions)
-            
-            # Combine all warnings
-            all_warnings = parsing_warnings + multi_level_warnings
-            
-            if not fields_info:
-                return "-- Error: No valid fields found in conditions", ["❌ No valid fields found"]
-            
-            # Build SQL components
-            select_clause = self._build_select_clause_multi_level(fields_info, schema, json_column)
-            from_clause = self._build_from_clause_optimized(table_name, json_column, fields_info, schema)
-            where_clause = self._build_where_clause_multi_level(fields_info, schema, json_column)
-            
-            sql_parts = [select_clause, from_clause]
-            if where_clause.strip():
-                sql_parts.append(where_clause)
-            
-            return '\n'.join(sql_parts) + ';', all_warnings
-            
-        except Exception as e:
-            logger.error(f"Enhanced SQL generation failed: {e}")
-            return f"-- Error generating SQL: {str(e)}", [f"❌ Generation error: {str(e)}"]
-    
-    def _parse_field_conditions_with_multi_level(self, field_conditions: str, schema: Dict[str, Dict]) -> Tuple[List[Dict], List[str]]:
-        """
-        ENHANCED: Parse field conditions with multi-level detection
-        Returns: (parsed_fields, warnings)
-        """
-        fields_info = []
-        warnings = []
-        
-        conditions = [c.strip() for c in field_conditions.split(',')]
-        
-        for condition in conditions:
-            if not condition:
-                continue
-                
-            # Parse field[operator:value] or just field
-            if '[' in condition and ']' in condition:
-                field_path = condition.split('[')[0].strip()
-                condition_part = condition[condition.index('[') + 1:condition.rindex(']')]
-                
-                if ':' in condition_part:
-                    operator, value = condition_part.split(':', 1)
-                    operator = operator.strip()
-                    value = value.strip()
-                else:
-                    operator = condition_part.strip()
-                    value = None
-            else:
-                field_path = condition.strip()
-                operator = None
-                value = None
-            
-            # Multi-level field resolution
-            resolved_fields, resolution_warnings = self._resolve_field_multi_level(field_path, schema)
-            
-            if resolved_fields:
-                for resolved_field in resolved_fields:
-                    fields_info.append({
-                        'field_path': resolved_field['full_path'],
-                        'original_field': field_path,
-                        'suggested_alias': resolved_field['alias'],
-                        'operator': operator,
-                        'value': value,
-                        'schema_entry': resolved_field['schema_entry'],
-                        'is_multi_level': resolved_field.get('is_multi_level', False),
-                        'level_description': resolved_field.get('context_description', '')
-                    })
-                    
-                    # Track usage
-                    self.path_usage_tracker[resolved_field['full_path']] = True
-                
-                if resolution_warnings:
-                    warnings.extend(resolution_warnings)
-            else:
-                warnings.append(f"⚠️ Field '{field_path}' not found or not queryable")
-        
-        return fields_info, warnings
-    
-    def _resolve_field_multi_level(self, field_input: str, schema: Dict[str, Dict]) -> Tuple[List[Dict], List[str]]:
-        """
-        ENHANCED: Resolve field with multi-level detection
-        If user specifies simple field name, return ALL occurrences
-        """
-        warnings = []
-        
-        # Try exact path match first
-        if field_input in schema and schema[field_input]['is_queryable']:
-            return [{
-                'full_path': field_input,
-                'alias': field_input.split('.')[-1],
-                'schema_entry': schema[field_input],
-                'is_multi_level': False
-            }], []
-        
-        # Extract simple field name
-        simple_field_name = field_input.split('.')[-1]
-        
-        # Check if this field has multiple levels
-        if simple_field_name in self.multi_level_fields and field_input == simple_field_name:
-            # User wants ALL occurrences of this field
-            multi_level_info = self.multi_level_fields[simple_field_name]
-            resolved_fields = []
-            
-            for path_info in multi_level_info['paths']:
-                resolved_fields.append({
-                    'full_path': path_info['full_path'],
-                    'alias': path_info['alias'],
-                    'schema_entry': path_info['schema_entry'],
-                    'is_multi_level': True,
-                    'context_description': path_info['context_description']
+    elif export_format == "Jupyter Notebook":
+        notebook_content = { "cells": [ ], "metadata": { } }
+        return json.dumps(notebook_content, indent=2)
+
+    elif export_format == "PowerBI Template":
+        return f"""# Power BI Data Source Template
+# Generated: {timestamp}
+"""
+    else:
+        return f"# Unknown export format: {export_format}\n{sql}"
+
+
+def get_file_extension(export_format):
+    """Get file extension for export format"""
+    extensions = { "SQL File": "sql", "Python Script": "py", "dbt Model": "sql", "Jupyter Notebook": "ipynb", "PowerBI Template": "txt" }
+    return extensions.get(export_format, "txt")
+
+
+def get_mime_type(export_format):
+    """Get MIME type for export format"""
+    mime_types = { "SQL File": "text/sql", "Python Script": "text/x-python", "dbt Model": "text/sql", "Jupyter Notebook": "application/json", "PowerBI Template": "text/plain" }
+    return mime_types.get(export_format, "text/plain")
+
+
+def render_enhanced_disambiguation_info(json_data):
+    """Render enhanced disambiguation info for Python mode"""
+    try:
+        from python_sql_generator import PythonSQLGenerator
+        temp_generator = PythonSQLGenerator()
+        temp_schema = temp_generator.analyze_json_for_sql(json_data)
+        disambiguation_info = temp_generator.get_multi_level_field_info()
+
+        if disambiguation_info:
+            st.markdown("#### 🚨 Field Name Conflicts Detected")
+            conflict_summary = []
+            for field_name, conflict_data in disambiguation_info.items():
+                paths = conflict_data['paths']
+                queryable_options = [opt for opt in paths if opt['schema_entry']['is_queryable']]
+                conflict_summary.append({ 
+                    'Field Name': field_name, 
+                    'Conflict Count': conflict_data['total_occurrences'], 
+                    'Queryable Options': len(queryable_options), 
+                    'Paths': ' | '.join([opt['full_path'] for opt in queryable_options[:3]]) 
                 })
             
-            warnings.append(
-                f"✅ Found '{simple_field_name}' at {multi_level_info['total_occurrences']} levels. "
-                f"Including ALL occurrences with descriptive aliases: {', '.join([f['alias'] for f in resolved_fields])}"
-            )
-            
-            return resolved_fields, warnings
-        
-        # Try partial matching for more complex patterns
-        matching_paths = []
-        for path, details in schema.items():
-            if details['is_queryable']:
-                if path.endswith('.' + field_input) or field_input in path:
-                    matching_paths.append({
-                        'full_path': path,
-                        'alias': details['context_description'],
-                        'schema_entry': details,
-                        'is_multi_level': False
-                    })
-        
-        if matching_paths:
-            if len(matching_paths) == 1:
-                warnings.append(f"ℹ️ Matched '{field_input}' → '{matching_paths[0]['full_path']}'")
-            else:
-                warnings.append(f"✅ Found '{field_input}' at {len(matching_paths)} locations. Including ALL occurrences.")
-            
-            return matching_paths, warnings
-        
-        return [], []
-    
-    def _get_multi_level_warnings(self, field_conditions: str) -> List[str]:
-        """Get specific warnings for multi-level field usage"""
-        warnings = []
-        
-        conditions = [c.strip() for c in field_conditions.split(',')]
-        
-        for condition in conditions:
-            if not condition:
-                continue
-                
-            field_name = condition.split('[')[0].strip() if '[' in condition else condition.strip()
-            simple_field_name = field_name.split('.')[-1]
-            
-            if simple_field_name in self.multi_level_fields and field_name == simple_field_name:
-                multi_level_info = self.multi_level_fields[simple_field_name]
-                aliases = [path['alias'] for path in multi_level_info['paths']]
-                
-                warnings.append(
-                    f"🎯 Multi-level field '{field_name}' expanded to {multi_level_info['total_occurrences']} columns: {', '.join(aliases)}"
-                )
-        
-        return warnings
-    
-    def _build_select_clause_multi_level(self, fields_info: List[Dict], schema: Dict[str, Dict], json_column: str) -> str:
-        """
-        ENHANCED: Build SELECT clause for multi-level fields
-        """
-        select_parts = []
-        used_aliases = set()
-        
-        for field_info in fields_info:
-            field_path = field_info['field_path']
-            suggested_alias = field_info['suggested_alias']
-            schema_entry = field_info['schema_entry']
-            snowflake_type = schema_entry.get('snowflake_type', 'VARCHAR')
-            array_context = schema_entry.get('array_context', [])
-            
-            # Ensure unique alias
-            final_alias = self._ensure_unique_alias(suggested_alias, used_aliases)
-            used_aliases.add(final_alias)
-            
-            if array_context:
-                flatten_alias = self._get_flatten_alias(array_context)
-                relative_path = self._calculate_relative_path_dynamic(field_path, array_context)
-                sql_path = f"{flatten_alias}.value:{relative_path}::{snowflake_type}"
-            else:
-                json_path = field_path.replace('.', ':')
-                sql_path = f"{json_column}:{json_path}::{snowflake_type}"
-            
-            select_parts.append(f"{sql_path} as {final_alias}")
-        
-        return f"SELECT {', '.join(select_parts)}"
-    
-    def _build_where_clause_multi_level(self, fields_info: List[Dict], schema: Dict[str, Dict], json_column: str) -> str:
-        """
-        ENHANCED: Build WHERE clause for multi-level fields
-        When user specifies condition on multi-level field, apply to ALL levels
-        """
-        where_conditions = []
-        
-        # Group conditions by original field to handle multi-level
-        condition_groups = {}
-        for field_info in fields_info:
-            original_field = field_info.get('original_field')
-            operator = field_info.get('operator')
-            value = field_info.get('value')
-            
-            if not operator:
-                continue
-                
-            if original_field not in condition_groups:
-                condition_groups[original_field] = []
-            
-            condition_groups[original_field].append({
-                'field_info': field_info,
-                'operator': operator,
-                'value': value
-            })
-        
-        for original_field, conditions in condition_groups.items():
-            if len(conditions) > 1:
-                # Multi-level field - create OR condition for all levels
-                level_conditions = []
-                
-                for cond in conditions:
-                    field_info = cond['field_info']
-                    operator = cond['operator']
-                    value = cond['value']
-                    
-                    field_path = field_info['field_path']
-                    schema_entry = field_info['schema_entry']
-                    array_context = schema_entry.get('array_context', [])
-                    
-                    if array_context:
-                        flatten_alias = self._get_flatten_alias(array_context)
-                        relative_path = self._calculate_relative_path_dynamic(field_path, array_context)
-                        sql_ref = f"{flatten_alias}.value:{relative_path}"
-                    else:
-                        json_path = field_path.replace('.', ':')
-                        sql_ref = f"{json_column}:{json_path}"
-                    
-                    # Build condition based on operator
-                    if operator.upper() == 'IS NOT NULL':
-                        level_conditions.append(f"{sql_ref} IS NOT NULL")
-                    elif operator == '=':
-                        level_conditions.append(f"{sql_ref}::VARCHAR = '{value}'")
-                    elif operator == '>':
-                        level_conditions.append(f"{sql_ref}::NUMBER > {value}")
-                    elif operator == '<':
-                        level_conditions.append(f"{sql_ref}::NUMBER < {value}")
-                    elif operator.upper() == 'IN':
-                        values_list = [f"'{v.strip()}'" for v in value.split('|')]
-                        level_conditions.append(f"{sql_ref}::VARCHAR IN ({', '.join(values_list)})")
-                    elif operator.upper() == 'LIKE':
-                        level_conditions.append(f"{sql_ref}::VARCHAR LIKE '%{value}%'")
-                
-                if level_conditions:
-                    where_conditions.append(f"({' OR '.join(level_conditions)})")
-            else:
-                # Single level field
-                cond = conditions[0]
-                field_info = cond['field_info']
-                operator = cond['operator']
-                value = cond['value']
-                
-                field_path = field_info['field_path']
-                schema_entry = field_info['schema_entry']
-                array_context = schema_entry.get('array_context', [])
-                
-                if array_context:
-                    flatten_alias = self._get_flatten_alias(array_context)
-                    relative_path = self._calculate_relative_path_dynamic(field_path, array_context)
-                    sql_ref = f"{flatten_alias}.value:{relative_path}"
-                else:
-                    json_path = field_path.replace('.', ':')
-                    sql_ref = f"{json_column}:{json_path}"
-                
-                # Build condition based on operator
-                if operator.upper() == 'IS NOT NULL':
-                    where_conditions.append(f"{sql_ref} IS NOT NULL")
-                elif operator == '=':
-                    where_conditions.append(f"{sql_ref}::VARCHAR = '{value}'")
-                elif operator == '>':
-                    where_conditions.append(f"{sql_ref}::NUMBER > {value}")
-                elif operator == '<':
-                    where_conditions.append(f"{sql_ref}::NUMBER < {value}")
-                elif operator.upper() == 'IN':
-                    values_list = [f"'{v.strip()}'" for v in value.split('|')]
-                    where_conditions.append(f"{sql_ref}::VARCHAR IN ({', '.join(values_list)})")
-                elif operator.upper() == 'LIKE':
-                    where_conditions.append(f"{sql_ref}::VARCHAR LIKE '%{value}%'")
-        
-        return f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
-    
-    def _ensure_unique_alias(self, preferred_alias: str, used_aliases: set) -> str:
-        """Ensure alias is unique by adding counter if needed"""
-        if preferred_alias not in used_aliases:
-            return preferred_alias
-        
-        counter = 1
-        while f"{preferred_alias}_{counter}" in used_aliases:
-            counter += 1
-        
-        return f"{preferred_alias}_{counter}"
-    
-    def _get_flatten_alias(self, array_context: List[str]) -> str:
-        """Get or create flatten alias, reusing existing aliases"""
-        context_key = tuple(array_context)
-        
-        if context_key in self.flatten_alias_map:
-            return self.flatten_alias_map[context_key]
-        
-        alias = f"f{len(array_context)}"
-        self.flatten_alias_map[context_key] = alias
-        return alias
-    
-    def _build_from_clause_optimized(self, table_name: str, json_column: str, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
-        """
-        OPTIMIZED: Build FROM clause without duplicate LATERAL FLATTEN aliases
-        """
-        from_parts = [table_name]
-        required_flattens = {}
-        
-        # Collect all required flattens
-        for field_info in fields_info:
-            array_context = field_info['schema_entry'].get('array_context', [])
-            
-            for i, context in enumerate(array_context):
-                context_tuple = tuple(array_context[:i+1])
-                
-                if context_tuple not in required_flattens:
-                    required_flattens[context_tuple] = {
-                        'level': i,
-                        'array_path': context,
-                        'full_context': array_context[:i+1]
-                    }
-        
-        # Sort flattens by level to ensure proper order
-        sorted_flattens = sorted(required_flattens.items(), key=lambda x: x[1]['level'])
-        
-        # Build LATERAL FLATTEN clauses
-        for context_tuple, flatten_info in sorted_flattens:
-            level = flatten_info['level']
-            array_path = flatten_info['array_path']
-            flatten_alias = self._get_flatten_alias(flatten_info['full_context'])
-            
-            if level == 0:
-                # Top-level array
-                clean_path = array_path.replace('.', ':')
-                flatten_input = f"{json_column}:{clean_path}"
-            else:
-                # Nested array
-                parent_context = tuple(flatten_info['full_context'][:level])
-                parent_alias = self._get_flatten_alias(list(parent_context))
-                parent_array_path = flatten_info['full_context'][level-1]
-                
-                if array_path.startswith(parent_array_path + '.'):
-                    relative_path = array_path[len(parent_array_path) + 1:]
-                else:
-                    relative_path = array_path.split('.')[-1]
-                
-                flatten_input = f"{parent_alias}.value:{relative_path}"
-            
-            from_parts.append(f"LATERAL FLATTEN(input => {flatten_input}) {flatten_alias}")
-        
-        return f"FROM {', '.join(from_parts)}"
-    
-    def _calculate_relative_path_dynamic(self, full_path: str, array_context: List[str]) -> str:
-        """Calculate relative path within flattened context"""
-        if not array_context:
-            return full_path.replace('.', ':')
-        
-        deepest_array = array_context[-1]
-        
-        if full_path.startswith(deepest_array + '.'):
-            relative_path = full_path[len(deepest_array) + 1:]
+            if conflict_summary:
+                st.warning(f"⚠️ Found {len(conflict_summary)} field names with multiple locations")
+                with st.expander("🔍 View Conflict Details", expanded=False):
+                    st.dataframe(pd.DataFrame(conflict_summary), use_container_width=True)
+                    st.markdown("**💡 How disambiguation works:**")
+                    st.markdown("""- Specify the full path (e.g., `company.name`) to be explicit.""")
         else:
-            relative_path = full_path.split('.')[-1]
+            st.success("✅ No field name conflicts detected.")
         
-        return relative_path.replace('.', ':')
-
-
-def generate_sql_from_json_data(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> str:
-    """
-    ENHANCED: Generate SQL from JSON data with multi-level field support
-    This is the main function called by your application - maintains backward compatibility
-    """
-    try:
-        generator = PythonSQLGenerator()
-        schema = generator.analyze_json_for_sql(json_data)
-        
-        if not schema:
-            return "-- Error: Could not analyze JSON structure"
-        
-        return generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
-        
+        return temp_schema, disambiguation_info
     except Exception as e:
-        logger.error(f"SQL generation from JSON data failed: {e}")
-        return f"-- Error: {str(e)}"
+        st.warning(f"Could not analyze disambiguation info: {e}")
+        return {}, {}
 
 
-def generate_sql_from_json_data_with_warnings(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> Tuple[str, List[str], Dict]:
-    """
-    NEW: Enhanced version that returns SQL, warnings, and multi-level info
-    Use this for enhanced UI features
-    """
+def render_enhanced_python_field_suggestions(temp_schema, disambiguation_info):
+    """Enhanced field suggestions for Python mode with disambiguation"""
+    if temp_schema:
+        with st.expander("💡 Smart Field Suggestions (Click to Use)", expanded=True):
+            queryable_fields_list = []
+            for path, details in temp_schema.items():
+                if details.get('is_queryable', False):
+                    queryable_fields_list.append({
+                        'Field Path': path, 
+                        'Type': details.get('snowflake_type', 'VARIANT'), 
+                        'Sample': str(details.get('sample_value', ''))[:50]
+                    })
+            
+            suggestion_cols = st.columns(2)
+            for i, field in enumerate(queryable_fields_list[:12]):
+                with suggestion_cols[i % 2]:
+                    if st.button(f"➕ {field['Field Path']}", key=f"use_field_{field['Field Path']}_{i}", help=f"Type: {field['Type']} | Sample: {field['Sample']}", type="secondary"):
+                        current_conditions = st.session_state.get('py_fields', '').strip()
+                        st.session_state.py_fields = f"{current_conditions}, {field['Field Path']}" if current_conditions else field['Field Path']
+                        st.rerun()
+            
+            if len(queryable_fields_list) > 12:
+                st.caption(f"... and {len(queryable_fields_list) - 12} more fields available")
+
+
+def generate_enhanced_sql_python_mode(json_data, table_name, json_column, field_conditions):
+    """Enhanced SQL generation for Python mode with warnings and disambiguation"""
     try:
-        generator = PythonSQLGenerator()
-        schema = generator.analyze_json_for_sql(json_data)
-        
-        if not schema:
-            return "-- Error: Could not analyze JSON structure", ["❌ Schema analysis failed"], {}
-        
-        sql, warnings = generator.generate_sql_with_warnings(table_name, json_column, field_conditions, schema)
-        multi_level_info = generator.get_multi_level_field_info()
-        
-        return sql, warnings, multi_level_info
-        
+        from python_sql_generator import generate_sql_from_json_data_with_warnings
+        sql, warnings, disambiguation_details = generate_sql_from_json_data_with_warnings(json_data, table_name, json_column, field_conditions)
+        return sql, warnings, disambiguation_details
+    except ImportError:
+        try:
+            # Fallback: Use basic generator with enhanced field parsing
+            sql = generate_sql_from_json_data(json_data, table_name, json_column, field_conditions)
+            
+            # Debug: Count SELECT clauses in generated SQL
+            select_count = sql.count("json_data:$")
+            st.info(f"🔍 **Debug: Generated SQL has {select_count} field extractions**")
+            
+            return sql, [], {}
+        except Exception as e:
+            return f"-- Error: {str(e)}", [f"❌ Generation error: {str(e)}"], {}
     except Exception as e:
-        logger.error(f"Enhanced SQL generation failed: {e}")
         return f"-- Error: {str(e)}", [f"❌ Generation error: {str(e)}"], {}
 
 
-def analyze_json_structure_simple(json_data: Any) -> Dict[str, Any]:
-    """Simple JSON structure analysis for basic use cases"""
-    try:
-        generator = PythonSQLGenerator()
-        schema = generator.analyze_json_for_sql(json_data)
-        
-        # Return simplified structure info
-        structure_info = {
-            'total_fields': len(schema),
-            'queryable_fields': sum(1 for details in schema.values() if details.get('is_queryable', False)),
-            'nested_objects': sum(1 for details in schema.values() if details.get('is_nested_object', False)),
-            'arrays': sum(1 for details in schema.values() if details.get('is_array', False)),
-            'field_paths': list(schema.keys()),
-            'multi_level_fields': len(generator.get_multi_level_field_info())
-        }
-        
-        return structure_info
-        
-    except Exception as e:
-        logger.error(f"Simple JSON analysis failed: {e}")
-        return {
-            'error': str(e),
-            'total_fields': 0,
-            'queryable_fields': 0,
-            'nested_objects': 0,
-            'arrays': 0,
-            'field_paths': [],
-            'multi_level_fields': 0
-        }
+def render_disambiguation_details(sql, warnings, field_conditions, disambiguation_details):
+    """Render disambiguation details in expandable section"""
+    if warnings and any("Auto-resolved" in w or "ambiguous" in w or "Multi-level" in w for w in warnings):
+        with st.expander("🔍 Disambiguation Details", expanded=False):
+            st.markdown("**Field Resolution Summary:**")
+            conditions = [c.strip() for c in field_conditions.split(',')]
+            for condition in conditions:
+                if condition:
+                    field_name = condition.split('[')[0].strip()
+                    simple_name = field_name.split('.')[-1]
+                    if simple_name in disambiguation_details:
+                        conflict_data = disambiguation_details[simple_name]
+                        st.markdown(f"**{field_name}:**")
+                        for opt in conflict_data['paths']:
+                            status = "✅ Used" if opt['full_path'] in sql else "⏸️ Available"
+                            st.markdown(f"- {status} `{opt['full_path']}` ({opt['context_description']})")
 
 
-def get_field_suggestions_simple(json_data: Any, max_suggestions: int = 5) -> List[str]:
-    """Get simple field suggestions from JSON data"""
-    try:
-        generator = PythonSQLGenerator()
-        schema = generator.analyze_json_for_sql(json_data)
-        multi_level_info = generator.get_multi_level_field_info()
-        
-        suggestions = []
-        
-        # Prioritize multi-level fields
-        for field_name in multi_level_info.keys():
-            if len(suggestions) >= max_suggestions:
-                break
-            suggestions.append(field_name)
-        
-        # Add high-frequency queryable fields
-        queryable_fields = [
-            (path, details) for path, details in schema.items()
-            if details.get('is_queryable', False) and details.get('frequency', 0) > 0.5
-        ]
-        
-        # Sort by frequency and add to suggestions
-        queryable_fields.sort(key=lambda x: x[1].get('frequency', 0), reverse=True)
-        
-        for path, details in queryable_fields:
-            field_name = path.split('.')[-1]
-            if field_name not in multi_level_info and len(suggestions) < max_suggestions:
-                suggestions.append(path)
-        
-        return suggestions[:max_suggestions]
-        
-    except Exception as e:
-        logger.error(f"Simple field suggestions failed: {e}")
-        return []
+def render_enhanced_snowflake_ui(conn_manager):
+    """
+    ENHANCED SNOWFLAKE UI - Matching Python Mode Experience
+    """
+    if not conn_manager:
+        st.error("❌ Connection manager not available")
+        return
+
+    # Mode display
+    mode_text = "Enhanced" if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else "Standard"
+    mode_color = "#2e7d32" if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else "#1976d2"
+    mode_icon = "⚡" if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else "🏔️"
+
+    st.markdown(f"""
+    <div class="mode-selector">
+        <h5 style="color: {mode_color}; margin-bottom: 0.5rem;">{mode_icon} Currently in {mode_text} Mode</h5>
+        <p style="margin-bottom: 0; font-size: 0.9rem;">
+            {'🛡️ Session context management + 🚀 Modin acceleration + 📊 Performance tracking' if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else '📊 Basic connectivity with standard pandas processing'}
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Create tabs similar to Python mode structure
+    snowflake_tab1, snowflake_tab2, snowflake_tab3 = st.tabs([
+        "🧪 **Smart JSON Analysis (Enhanced)**", 
+        "📊 **Custom SQL Execution**", 
+        "🔧 **Connection Management**"
+    ])
+
+    with snowflake_tab1:
+        render_smart_json_analysis_ui(conn_manager)
+
+    with snowflake_tab2:
+        render_custom_sql_execution_ui(conn_manager)
+
+    with snowflake_tab3:
+        render_connection_management_ui(conn_manager)
 
 
-def validate_field_conditions_format(field_conditions: str) -> Tuple[bool, List[str]]:
-    """Validate field conditions format"""
-    try:
-        errors = []
-        conditions = [c.strip() for c in field_conditions.split(',') if c.strip()]
-        
-        for condition in conditions:
-            # Check basic format
-            if '[' in condition:
-                if not condition.endswith(']'):
-                    errors.append(f"Condition '{condition}' missing closing bracket")
-                    continue
-                
-                field_part = condition.split('[')[0].strip()
-                condition_part = condition[condition.index('[') + 1:condition.rindex(']')]
-                
-                if not field_part:
-                    errors.append(f"Empty field name in condition '{condition}'")
-                
-                if not condition_part:
-                    errors.append(f"Empty condition in '{condition}'")
-                
-                # Check for valid operators
-                if ':' in condition_part:
-                    operator = condition_part.split(':', 1)[0].strip().upper()
-                    valid_operators = ['IS NOT NULL', '=', '>', '<', 'IN', 'LIKE', 'NOT LIKE', '>=', '<=', '!=']
-                    
-                    if operator not in valid_operators:
-                        errors.append(f"Unknown operator '{operator}' in condition '{condition}'")
-            
-            elif not condition.replace('.', '').replace('_', '').isalnum():
-                # Basic field name validation
-                errors.append(f"Field name '{condition}' contains invalid characters")
-        
-        return len(errors) == 0, errors
-        
-    except Exception as e:
-        logger.error(f"Field condition validation failed: {e}")
-        return False, [f"Validation error: {str(e)}"]
+def render_smart_json_analysis_ui(conn_manager):
+    """Enhanced Smart JSON Analysis UI matching Python mode"""
+    st.markdown("### 🧪 Smart JSON Analysis with Live Database")
+    
+    if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode:
+        st.markdown("""
+        <div class="enhanced-box">
+            <h5 style="color: #2e7d32;">🎯 Enhanced Database Features Active:</h5>
+            <ul style="color: #1b5e20; margin-bottom: 0;">
+                <li><strong>✅ Live database sampling</strong> - Real-time JSON schema analysis</li>
+                <li><strong>🚀 Modin acceleration</strong> for large datasets</li>
+                <li><strong>📊 Real-time performance tracking</strong> during analysis</li>
+                <li><strong>🏷️ Smart table name resolution</strong> - Works with partial names</li>
+                <li><strong>⚠️ Field disambiguation support</strong> - Handles duplicate field names</li>
+                <li><strong>💡 Intelligent field suggestions</strong> based on your actual data</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="feature-box">
+            <h5 style="color: #1976d2;">🏔️ Standard Database Features Active:</h5>
+            <ul style="color: #0d47a1; margin-bottom: 0;">
+                <li><strong>📊 Live database connectivity</strong></li>
+                <li><strong>🔧 Standard pandas processing</strong></li>
+                <li><strong>⚠️ Field disambiguation support</strong> - Handles duplicate field names</li>
+                <li><strong>💡 Smart field suggestions</strong> based on actual data structure</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
 
-
-def extract_json_sample_values(json_data: Any, field_path: str, max_samples: int = 10) -> List[Any]:
-    """Extract sample values for a specific field path from JSON data"""
-    try:
-        def extract_values(obj, path_parts, current_depth=0):
-            if current_depth >= len(path_parts):
-                return [obj] if obj is not None else []
-            
-            current_key = path_parts[current_depth]
-            values = []
-            
-            if isinstance(obj, dict) and current_key in obj:
-                values.extend(extract_values(obj[current_key], path_parts, current_depth + 1))
-            elif isinstance(obj, list):
-                for item in obj:
-                    values.extend(extract_values(item, path_parts, current_depth))
-            
-            return values
-        
-        path_parts = field_path.split('.')
-        sample_values = extract_values(json_data, path_parts)
-        
-        # Remove duplicates while preserving order
-        unique_values = []
-        seen = set()
-        
-        for value in sample_values[:max_samples * 2]:  # Get extra to account for duplicates
-            str_value = str(value)
-            if str_value not in seen:
-                seen.add(str_value)
-                unique_values.append(value)
-                
-                if len(unique_values) >= max_samples:
-                    break
-        
-        return unique_values
-        
-    except Exception as e:
-        logger.error(f"Sample value extraction failed for {field_path}: {e}")
-        return []
-
-
-def get_json_depth_info(json_data: Any) -> Dict[str, Any]:
-    """Get depth information about JSON structure"""
-    try:
-        def calculate_depth(obj, current_depth=0):
-            if isinstance(obj, dict):
-                if not obj:
-                    return current_depth
-                return max(calculate_depth(v, current_depth + 1) for v in obj.values())
-            elif isinstance(obj, list):
-                if not obj:
-                    return current_depth
-                return max(calculate_depth(item, current_depth) for item in obj if item is not None)
-            else:
-                return current_depth
-        
-        max_depth = calculate_depth(json_data)
-        
-        # Count objects at each level
-        def count_by_depth(obj, current_depth=0, counts=None):
-            if counts is None:
-                counts = {}
-            
-            level = f"depth_{current_depth}"
-            counts[level] = counts.get(level, 0) + 1
-            
-            if isinstance(obj, dict):
-                for value in obj.values():
-                    count_by_depth(value, current_depth + 1, counts)
-            elif isinstance(obj, list):
-                for item in obj:
-                    if item is not None:
-                        count_by_depth(item, current_depth + 1, counts)
-            
-            return counts
-        
-        depth_counts = count_by_depth(json_data)
-        
-        return {
-            'max_depth': max_depth,
-            'depth_distribution': depth_counts,
-            'complexity': 'High' if max_depth > 5 else 'Medium' if max_depth > 2 else 'Low'
-        }
-        
-    except Exception as e:
-        logger.error(f"JSON depth analysis failed: {e}")
-        return {
-            'max_depth': 0,
-            'depth_distribution': {},
-            'complexity': 'Unknown',
-            'error': str(e)
-        }
-
-
-def compare_json_schemas(schema1: Dict, schema2: Dict) -> Dict[str, Any]:
-    """Compare two JSON schemas and return differences"""
-    try:
-        comparison = {
-            'common_fields': [],
-            'schema1_only': [],
-            'schema2_only': [],
-            'type_differences': [],
-            'similarity_score': 0.0
-        }
-        
-        paths1 = set(schema1.keys())
-        paths2 = set(schema2.keys())
-        
-        comparison['common_fields'] = list(paths1.intersection(paths2))
-        comparison['schema1_only'] = list(paths1 - paths2)
-        comparison['schema2_only'] = list(paths2 - paths1)
-        
-        # Check type differences for common fields
-        for path in comparison['common_fields']:
-            type1 = schema1[path].get('snowflake_type', 'UNKNOWN')
-            type2 = schema2[path].get('snowflake_type', 'UNKNOWN')
-            
-            if type1 != type2:
-                comparison['type_differences'].append({
-                    'path': path,
-                    'schema1_type': type1,
-                    'schema2_type': type2
-                })
-        
-        # Calculate similarity score
-        total_unique_fields = len(paths1.union(paths2))
-        common_fields_count = len(comparison['common_fields'])
-        
-        if total_unique_fields > 0:
-            comparison['similarity_score'] = common_fields_count / total_unique_fields
-        
-        return comparison
-        
-    except Exception as e:
-        logger.error(f"Schema comparison failed: {e}")
-        return {
-            'error': str(e),
-            'common_fields': [],
-            'schema1_only': [],
-            'schema2_only': [],
-            'type_differences': [],
-            'similarity_score': 0.0
-        }
-
-
-def optimize_sql_performance(sql: str, optimization_level: str = 'medium') -> Tuple[str, List[str]]:
-    """Apply basic SQL optimizations"""
-    try:
-        optimized_sql = sql
-        optimizations_applied = []
-        
-        if optimization_level in ['medium', 'high']:
-            # Remove unnecessary type casting where possible
-            if '::VARCHAR' in optimized_sql and 'LIKE' not in optimized_sql.upper():
-                # Only keep VARCHAR casting where needed for string operations
-                lines = optimized_sql.split('\n')
-                for i, line in enumerate(lines):
-                    if '::VARCHAR' in line and 'IS NOT NULL' in line:
-                        lines[i] = line.replace('::VARCHAR', '')
-                        if 'Removed unnecessary VARCHAR casting' not in optimizations_applied:
-                            optimizations_applied.append('Removed unnecessary VARCHAR casting for NOT NULL checks')
-                
-                optimized_sql = '\n'.join(lines)
-        
-        if optimization_level == 'high':
-            # Additional high-level optimizations could be added here
-            pass
-        
-        return optimized_sql, optimizations_applied
-        
-    except Exception as e:
-        logger.error(f"SQL optimization failed: {e}")
-        return sql, [f"Optimization failed: {str(e)}"]
-
-
-# Backward compatibility functions
-def get_field_disambiguation_warnings(field_conditions: str, schema: Dict) -> List[str]:
-    """Backward compatibility wrapper for multi-level warnings"""
-    try:
-        generator = PythonSQLGenerator()
-        generator.multi_level_fields = generator._create_multi_level_field_map(
-            {}, schema  # Simplified call for compatibility
+    # Query Configuration Section - Similar to Python mode
+    st.markdown("### 📝 Database Query Configuration")
+    input_col1, input_col2 = st.columns(2)
+    
+    with input_col1:
+        table_name = st.text_input(
+            "Table Name* 🏗️",
+            placeholder="SCHEMA.TABLE or just TABLE_NAME",
+            key="sf_table_name",
+            help="Can be just table name, schema.table, or database.schema.table"
         )
-        return generator._get_multi_level_warnings(field_conditions)
-    except Exception as e:
-        logger.error(f"Compatibility warning generation failed: {e}")
-        return [f"Warning generation error: {str(e)}"]
+
+        field_conditions = st.text_area(
+            "Field Conditions* 🎯",
+            height=120,
+            placeholder="e.g., name, company.name, departments.employees.name[IS NOT NULL]",
+            key="sf_field_conditions",
+            help="Specify JSON fields and their filtering conditions. Use full paths to avoid ambiguity."
+        )
+
+    with input_col2:
+        json_column = st.text_input(
+            "JSON Column Name* 📄",
+            placeholder="json_data",
+            key="sf_json_column",
+            help="Name of the column containing JSON data"
+        )
+
+        execution_mode = st.radio(
+            "Choose Action:", 
+            ["🔍 Analyze Schema Only", "🚀 Analyze & Execute", "📋 Export Generated SQL"], 
+            key="sf_execution_mode",
+            help="Choose how to handle the database analysis"
+        )
+
+    # Field parsing debug for Snowflake mode
+    if field_conditions:
+        with st.expander("🔍 Field Parsing Debug (Snowflake Mode)", expanded=True):
+            parsed_fields = parse_field_conditions_enhanced(field_conditions)
+            st.markdown(f"""
+            <div class="field-counter-box">
+                <h6 style="color: #2e7d32; margin-bottom: 0.5rem;">📊 Field Analysis Summary</h6>
+                <p style="margin-bottom: 0; font-size: 0.9rem;">
+                    <strong>Input:</strong> {field_conditions}<br/>
+                    <strong>Parsed Fields:</strong> {len(parsed_fields)} fields detected<br/>
+                    <strong>Fields:</strong> {', '.join([f'`{f}`' for f in parsed_fields])}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # Sample size configuration
+    col_config1, col_config2 = st.columns(2)
+    with col_config1:
+        sample_size = st.selectbox(
+            "Analysis Sample Size 📊",
+            [5, 10, 20, 50],
+            index=1,
+            key="sf_sample_size",
+            help="Larger samples give better schema analysis but take longer"
+        )
+    
+    with col_config2:
+        show_preview = st.checkbox(
+            "Show Detailed Schema Preview 👀",
+            value=True,
+            key="sf_show_preview",
+            help="Display comprehensive analysis of discovered JSON fields with disambiguation info"
+        )
+
+    # Smart suggestions section (similar to Python mode)
+    if 'discovered_schema_sf' in st.session_state:
+        render_snowflake_field_suggestions()
+
+    # Enhanced "Action Buttons" similar to Python mode
+    st.markdown("### 🚀 Analysis & Execution")
+    mode_display = execution_mode.split(' ', 1)[1] if ' ' in execution_mode else execution_mode
+    
+    action_col1, action_col2 = st.columns([1, 2])
+    with action_col1:
+        execute_btn = st.button(f"🚀 {mode_display}", type="primary", use_container_width=True)
+    with action_col2:
+        st.markdown(f"""<div class="execution-mode-box" style="text-align:center;"><h6 style="margin-bottom: 0rem; color: #1976d2;">🎯 Current Mode: {mode_display}</h6></div>""", unsafe_allow_html=True)
+
+    if execute_btn:
+        if not all([table_name, json_column, field_conditions]):
+            st.error("❌ Please fill in all required fields marked with *.")
+        else:
+            execute_snowflake_analysis(conn_manager, table_name, json_column, field_conditions, sample_size, execution_mode, show_preview)
 
 
-def create_sql_execution_plan(sql: str) -> Dict[str, Any]:
-    """Create a basic execution plan summary"""
+def render_snowflake_field_suggestions():
+    """Render field suggestions for Snowflake mode"""
+    with st.expander("💡 Smart Field Suggestions (Database-Aware)", expanded=False):
+        try:
+            schema = st.session_state.discovered_schema_sf
+            metadata = st.session_state.get('schema_metadata_sf', {})
+            disambiguation_info = metadata.get('disambiguation_info', {})
+
+            if render_enhanced_field_suggestions:
+                suggestions = render_enhanced_field_suggestions(schema, disambiguation_info)
+
+                if suggestions:
+                    st.markdown("**🎯 Smart suggestions based on your database JSON structure:**")
+
+                    # Show disambiguation warning if conflicts exist
+                    if disambiguation_info:
+                        st.markdown("""
+                        <div class="disambiguation-alert">
+                            <strong>⚠️ Database Field Disambiguation Active:</strong> Detected field name conflicts in your database.
+                            Suggestions use full paths to avoid ambiguity.
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    cols = st.columns(2)
+                    suggestion_count = 0
+                    for suggestion in suggestions:
+                        if suggestion.startswith('#'):
+                            # This is a comment, display differently
+                            st.markdown(f"**{suggestion}**")
+                        else:
+                            col_idx = suggestion_count % 2
+                            with cols[col_idx]:
+                                if st.button(f"Use: `{suggestion.split('#')[0].strip()}`", key=f"use_sf_suggestion_{suggestion_count}"):
+                                    current_conditions = st.session_state.get('sf_field_conditions', '').strip()
+                                    clean_suggestion = suggestion.split('#')[0].strip()
+                                    new_condition = f"{current_conditions}, {clean_suggestion}" if current_conditions else clean_suggestion
+                                    st.session_state.sf_field_conditions = new_condition
+                                    st.rerun()
+                                st.code(suggestion, language="text")
+                            suggestion_count += 1
+                else:
+                    st.info("No specific suggestions available for this database schema.")
+            else:
+                st.info("Enhanced field suggestions not available.")
+
+        except Exception as e:
+            st.warning(f"Could not generate database suggestions: {e}")
+
+
+def execute_snowflake_analysis(conn_manager, table_name, json_column, field_conditions, sample_size, execution_mode, show_preview):
+    """Execute the Snowflake analysis based on the chosen mode"""
     try:
-        plan = {
-            'operations': [],
-            'estimated_complexity': 'Medium',
-            'recommendations': []
-        }
-        
-        sql_upper = sql.upper()
-        
-        # Analyze SQL structure
-        if 'LATERAL FLATTEN' in sql_upper:
-            flatten_count = sql_upper.count('LATERAL FLATTEN')
-            plan['operations'].append(f'LATERAL FLATTEN operations: {flatten_count}')
-            
-            if flatten_count > 2:
-                plan['estimated_complexity'] = 'High'
-                plan['recommendations'].append('Consider limiting JSON depth or filtering data earlier')
-        
-        if 'WHERE' not in sql_upper:
-            plan['recommendations'].append('Consider adding WHERE conditions to limit data scanned')
-        
-        if sql_upper.count('SELECT') > 1:
-            plan['operations'].append('Complex query with subqueries or CTEs')
-        
-        # Count projected columns
-        select_part = sql.split('FROM')[0] if 'FROM' in sql.upper() else sql
-        column_count = select_part.count(',') + 1 if 'SELECT' in select_part.upper() else 0
-        
-        if column_count > 10:
-            plan['recommendations'].append('Consider selecting only necessary columns for better performance')
-        
-        plan['operations'].append(f'Projected columns: {column_count}')
-        
-        if len(plan['operations']) <= 2 and not plan['recommendations']:
-            plan['estimated_complexity'] = 'Low'
-        
-        return plan
-        
+        if execution_mode == "🔍 Analyze Schema Only":
+            with st.spinner(f"🔄 Database schema analysis with field disambiguation..."):
+                if analyze_database_json_schema_universal:
+                    schema, error, metadata = analyze_database_json_schema_universal(
+                        conn_manager, table_name, json_column, sample_size
+                    )
+                else:
+                    schema, error, metadata = None, "Function not available", {}
+
+                if schema:
+                    st.success(f"✅ Database schema analysis complete! Found {len(schema)} fields.")
+
+                    # Store in session state for suggestions
+                    st.session_state.discovered_schema_sf = schema
+                    st.session_state.schema_metadata_sf = metadata
+
+                    # Show disambiguation summary
+                    disambiguation_info = metadata.get('disambiguation_info', {})
+                    if disambiguation_info:
+                        st.info(f"🚨 Found {len(disambiguation_info)} field names with multiple locations in your database. Check the detailed preview for disambiguation options.")
+
+                    # Count expected columns for this analysis
+                    count_expected_columns_from_conditions(field_conditions, schema, disambiguation_info)
+
+                    if show_preview and render_enhanced_database_json_preview:
+                        render_enhanced_database_json_preview(schema, metadata)
+                else:
+                    st.error(f"❌ Database schema analysis failed: {error}")
+
+        elif execution_mode == "🚀 Analyze & Execute":
+            with st.spinner("⚡ Generating and executing database-driven SQL..."):
+                if generate_database_driven_sql:
+                    generated_sql, sql_error = generate_database_driven_sql(
+                        conn_manager, table_name, json_column, field_conditions
+                    )
+                else:
+                    generated_sql, sql_error = None, "Function not available"
+
+                if generated_sql and not sql_error:
+                    st.success("✅ Database SQL Generated Successfully with Disambiguation Support!")
+                    st.code(generated_sql, language="sql")
+
+                    # Count SELECT clauses in generated SQL for debugging
+                    select_count = generated_sql.count("json_data:$") + generated_sql.count("value:")
+                    st.info(f"🔍 **Debug: Generated SQL has {select_count} field extractions**")
+
+                    # Execute the generated SQL
+                    if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode:
+                        with st.spinner("⚡ Executing with performance monitoring..."):
+                            if hasattr(conn_manager, 'execute_query_with_performance'):
+                                result_df, exec_error, perf_stats = conn_manager.execute_query_with_performance(generated_sql)
+                            else:
+                                result_df, exec_error = conn_manager.execute_query(generated_sql)
+                                perf_stats = {}
+
+                            if result_df is not None:
+                                st.success("✅ Database query executed with enhanced performance monitoring!")
+                                if perf_stats and render_performance_metrics:
+                                    render_performance_metrics(perf_stats)
+
+                                # Display results with metrics
+                                col_sum1, col_sum2, col_sum3, col_sum4 = st.columns(4)
+                                with col_sum1: 
+                                    st.metric("Rows Returned", len(result_df))
+                                with col_sum2: 
+                                    st.metric("Columns Generated", len(result_df.columns))
+                                with col_sum3:
+                                    processing_engine = "🚀 Modin" if perf_stats.get('modin_used', False) else "📊 Pandas"
+                                    st.metric("Processing Engine", processing_engine)
+                                with col_sum4:
+                                    aliases_used = [col for col in result_df.columns if '_' in col and not col.startswith('_')]
+                                    disambiguation_used = "✅ Applied" if len(aliases_used) > 0 else "➖ Not Needed"
+                                    st.metric("Disambiguation", disambiguation_used)
+
+                                st.dataframe(result_df, use_container_width=True)
+
+                                if not result_df.empty:
+                                    csv_data = result_df.to_csv(index=False).encode('utf-8')
+                                    filename = f"database_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                                    st.download_button("📥 Download Database Results", data=csv_data, file_name=filename, mime="text/csv")
+
+                                st.info(f"⚡ **Database Performance Summary:** Processed {len(result_df):,} rows in {perf_stats.get('total_time', 0):.2f}s using {processing_engine}")
+                            else:
+                                st.error(f"❌ Database query execution failed: {exec_error}")
+                    else:
+                        # Standard mode execution
+                        with st.spinner("🔄 Executing database query in standard mode..."):
+                            result_df, exec_error = conn_manager.execute_query(generated_sql)
+                            if result_df is not None:
+                                st.success("✅ Database query executed successfully!")
+                                
+                                col_sum1, col_sum2, col_sum3 = st.columns(3)
+                                with col_sum1: 
+                                    st.metric("Rows Returned", len(result_df))
+                                with col_sum2: 
+                                    st.metric("Columns Generated", len(result_df.columns))
+                                with col_sum3:
+                                    aliases_used = [col for col in result_df.columns if '_' in col and not col.startswith('_')]
+                                    disambiguation_used = "✅ Applied" if len(aliases_used) > 0 else "➖ Not Needed"
+                                    st.metric("Disambiguation", disambiguation_used)
+                                
+                                st.dataframe(result_df, use_container_width=True)
+                                if not result_df.empty: 
+                                    st.download_button("📥 Download Results", data=result_df.to_csv(index=False).encode('utf-8'), file_name=f"database_results.csv", mime="text/csv")
+                            else: 
+                                st.error(f"❌ Database query execution failed: {exec_error}")
+                else: 
+                    st.error(f"❌ Database SQL Generation Error: {sql_error}")
+
+        elif execution_mode == "📋 Export Generated SQL":
+            with st.spinner("📋 Generating SQL for export..."):
+                if generate_database_driven_sql:
+                    generated_sql, sql_error = generate_database_driven_sql(
+                        conn_manager, table_name, json_column, field_conditions
+                    )
+                else:
+                    generated_sql, sql_error = None, "Function not available"
+
+                if generated_sql and not sql_error:
+                    st.success("✅ Database SQL Generated for Export!")
+                    
+                    # Export format selection
+                    export_format = st.selectbox(
+                        "Choose Export Format:", 
+                        ["SQL File", "Python Script", "dbt Model", "Jupyter Notebook", "PowerBI Template"], 
+                        key="sf_export_format"
+                    )
+                    
+                    export_content = generate_export_content(generated_sql, export_format, table_name, field_conditions)
+                    
+                    with st.expander("👀 Export Content Preview", expanded=True):
+                        st.code(export_content, language="sql" if "sql" in export_format.lower() else "python")
+                    
+                    st.download_button(
+                        f"📥 Download {export_format}", 
+                        data=export_content, 
+                        file_name=f"database_export.{get_file_extension(export_format)}", 
+                        mime=get_mime_type(export_format)
+                    )
+                else:
+                    st.error(f"❌ Database SQL Generation Error: {sql_error}")
+
     except Exception as e:
-        logger.error(f"Execution plan creation failed: {e}")
-        return {
-            'operations': ['Analysis failed'],
-            'estimated_complexity': 'Unknown',
-            'recommendations': [f'Plan analysis error: {str(e)}'],
-            'error': str(e)
-        }
+        st.error(f"❌ Database analysis failed: {str(e)}")
+        st.info("💡 Try checking your table name, column name, database permissions, and field disambiguation.")
+
+
+def render_custom_sql_execution_ui(conn_manager):
+    """Custom SQL execution UI"""
+    st.markdown("### 📊 Custom SQL Execution")
+    st.markdown("""
+    <div class="feature-box">
+        <p>Execute any custom SQL query directly. Perfect for:</p>
+        <ul>
+            <li><strong>📋 Exploring tables:</strong> <code>SHOW TABLES</code> or <code>SELECT * FROM INFORMATION_SCHEMA.TABLES</code></li>
+            <li><strong>🔍 Describing structure:</strong> <code>DESCRIBE TABLE your_table</code></li>
+            <li><strong>📊 Testing queries:</strong> <code>SELECT * FROM your_table LIMIT 5</code></li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Initialize session state if not exists
+    if "last_custom_sql" not in st.session_state:
+        st.session_state.last_custom_sql = ""
+
+    # Quick example buttons
+    st.markdown("#### 💡 Quick SQL Examples:")
+    col_ex1, col_ex2, col_ex3 = st.columns(3)
+    
+    example_sql = None
+    
+    with col_ex1:
+        if st.button("📋 Show Tables", help="List all tables", key="sf_show_tables"):
+            example_sql = "SHOW TABLES;"
+    
+    with col_ex2:
+        if st.button("🏗️ Table Schema", help="Get table information", key="sf_table_schema"):
+            example_sql = """SELECT
+    TABLE_CATALOG as DATABASE_NAME,
+    TABLE_SCHEMA as SCHEMA_NAME,
+    TABLE_NAME,
+    TABLE_TYPE
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA'
+ORDER BY TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME
+LIMIT 20;"""
+
+    with col_ex3:
+        if st.button("📊 Sample Data", help="Sample from a table", key="sf_sample_data"):
+            example_sql = """-- Replace 'your_table' with actual table name
+SELECT * FROM your_table LIMIT 10;"""
+
+    # Text area for custom SQL
+    initial_value = example_sql if example_sql else st.session_state.last_custom_sql
+    
+    custom_sql = st.text_area(
+        f"Execute Custom SQL:",
+        value=initial_value,
+        height=150,
+        placeholder="""-- Quick examples to try:
+SHOW TABLES;
+-- or --
+SELECT * FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA'
+LIMIT 10;""",
+        key="sf_custom_sql_input"
+    )
+    
+    # Store the current SQL for next time
+    if custom_sql:
+        st.session_state.last_custom_sql = custom_sql
+
+    col_sql1, col_sql2 = st.columns(2)
+
+    with col_sql1:
+        execute_sql_btn = st.button("▶️ Execute Custom SQL", type="primary", key="sf_execute_custom")
+
+        if execute_sql_btn and custom_sql.strip():
+            try:
+                mode_text = "Enhanced" if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode else "Standard"
+                
+                if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode:
+                    # Enhanced mode with performance tracking
+                    with st.spinner("⚡ Executing with performance monitoring..."):
+                        if hasattr(conn_manager, 'execute_query_with_performance'):
+                            result_df, error, perf_stats = conn_manager.execute_query_with_performance(custom_sql)
+                        else:
+                            result_df, error = conn_manager.execute_query(custom_sql)
+                            perf_stats = {}
+
+                        if result_df is not None:
+                            st.success("✅ Custom SQL executed with performance tracking!")
+                            if perf_stats and render_performance_metrics:
+                                render_performance_metrics(perf_stats)
+                            st.dataframe(result_df, use_container_width=True)
+
+                            if not result_df.empty:
+                                csv_data = result_df.to_csv(index=False).encode('utf-8')
+                                st.download_button(
+                                    "📥 Download Results",
+                                    data=csv_data,
+                                    file_name=f"custom_enhanced_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                    mime="text/csv"
+                                )
+                        else:
+                            st.error(f"❌ Execution failed: {error}")
+                else:
+                    # Standard mode
+                    with st.spinner("🔄 Executing query in standard mode..."):
+                        result_df, error = conn_manager.execute_query(custom_sql)
+
+                        if result_df is not None:
+                            st.success("✅ Custom SQL executed successfully!")
+                            st.dataframe(result_df, use_container_width=True)
+
+                            if not result_df.empty:
+                                csv_data = result_df.to_csv(index=False).encode('utf-8')
+                                st.download_button(
+                                    "📥 Download Results",
+                                    data=csv_data,
+                                    file_name=f"custom_standard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                    mime="text/csv"
+                                )
+                        else:
+                            st.error(f"❌ Execution failed: {error}")
+            except Exception as e:
+                st.error(f"❌ Error executing SQL: {str(e)}")
+
+        elif execute_sql_btn:
+            st.warning("⚠️ Please enter a SQL query")
+
+    with col_sql2:
+        if st.button("📋 List Available Tables", type="secondary", key="sf_list_tables"):
+            try:
+                with st.spinner("🔄 Retrieving tables..."):
+                    if hasattr(conn_manager, 'list_tables'):
+                        tables_df, msg = conn_manager.list_tables()
+                    else:
+                        # Fallback query
+                        tables_df, error = conn_manager.execute_query("SHOW TABLES")
+                        msg = "Tables retrieved" if tables_df is not None else f"Error: {error}"
+
+                    if tables_df is not None:
+                        st.success(msg)
+                        if not tables_df.empty:
+                            st.dataframe(tables_df, use_container_width=True)
+                        else:
+                            st.info("ℹ️ No tables found in current schema")
+                    else:
+                        st.error(msg)
+            except Exception as e:
+                st.error(f"❌ Error listing tables: {str(e)}")
+
+
+def render_connection_management_ui(conn_manager):
+    """Connection management UI"""
+    st.markdown("### 🔧 Connection Management")
+    
+    col7, col8, col9 = st.columns(3)
+    with col7:
+        if st.button("🔌 Disconnect", type="secondary", key="sf_disconnect"):
+            try:
+                conn_manager.disconnect()
+                keys_to_clear = [k for k in st.session_state.keys() if 'sf_' in k or 'discovered_schema' in k]
+                for key in keys_to_clear: 
+                    del st.session_state[key]
+                st.success("✅ Disconnected from Snowflake")
+                st.rerun()
+            except Exception as e: 
+                st.error(f"❌ Error disconnecting: {str(e)}")
+    
+    with col8:
+        if st.button("🔍 Test Connection", type="secondary", key="sf_test_connection"):
+            try:
+                if test_database_connectivity:
+                    connectivity_ok, status_msg = test_database_connectivity(conn_manager)
+                else:
+                    try:
+                        test_df, error = conn_manager.execute_query("SELECT 1 as test_connection")
+                        connectivity_ok = test_df is not None
+                        status_msg = "Connection is healthy!" if connectivity_ok else f"Connection failed: {error}"
+                    except Exception as e:
+                        connectivity_ok = False
+                        status_msg = f"Connection test failed: {str(e)}"
+                if connectivity_ok: 
+                    st.success("✅ Connection is healthy!")
+                else: 
+                    st.error(status_msg)
+            except Exception as e: 
+                st.error(f"❌ Error testing connection: {str(e)}")
+    
+    with col9:
+        if st.button("🔄 Switch Mode", type="secondary", help="Disconnect and reconnect in different mode", key="sf_switch_mode"):
+            try:
+                conn_manager.disconnect()
+                keys_to_clear = [k for k in st.session_state.keys() if 'unified_connection' in k]
+                for key in keys_to_clear: 
+                    del st.session_state[key]
+                st.info("✅ Disconnected. Please reconnect in your preferred mode.")
+                st.rerun()
+            except Exception as e: 
+                st.error(f"❌ Error switching mode: {str(e)}")
+    
+    # Connection details
+    if hasattr(conn_manager, 'is_connected') and conn_manager.is_connected:
+        with st.expander("ℹ️ Enhanced Connection Details & Status"):
+            col_info1, col_info2 = st.columns(2)
+            with col_info1:
+                st.markdown("**Connection Information:**")
+                conn_info = {
+                    'Account': conn_manager.connection_params.get('account', 'N/A'), 
+                    'Database': conn_manager.connection_params.get('database', 'N/A'), 
+                    'Schema': conn_manager.connection_params.get('schema', 'N/A'), 
+                    'Warehouse': conn_manager.connection_params.get('warehouse', 'N/A')
+                }
+                for key, value in conn_info.items(): 
+                    st.text(f"{key}: {value}")
+            with col_info2:
+                st.markdown("**Enhanced Feature Status:**")
+                enhanced_mode = hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode
+                st.text(f"Mode: {'Enhanced' if enhanced_mode else 'Standard'}")
+                st.text(f"Session Management: {'✅ Active' if enhanced_mode else '❌ Basic'}")
+                st.text(f"Modin Acceleration: {'🚀 Available' if MODIN_AVAILABLE else '📊 Not Available'}")
+                st.text(f"Performance Tracking: {'✅ Active' if enhanced_mode else '❌ Not Available'}")
+                st.text(f"Field Disambiguation: ✅ Active")
+
+
+def main():
+    try:
+        st.markdown('<h1 class="main-header">❄️ Enhanced JSON-to-SQL Analyzer for Snowflake</h1>', unsafe_allow_html=True)
+        json_data = get_json_data_from_sidebar()
+        if render_performance_info:
+            render_performance_info()
+
+        main_tab1, main_tab2 = st.tabs(["🐍 **Python Mode (Instant SQL Generation)**", "🏔️ **Snowflake Mode (Live Analysis)**"])
+
+        with main_tab1:
+            st.markdown('<h2 class="section-header">🐍 SQL Generator from Sample JSON</h2>', unsafe_allow_html=True)
+            st.markdown("""
+            <div class="feature-box">
+                <p>Analyze your sample JSON structure and instantly generate a portable SQL query. Perfect for development, testing, and creating shareable scripts.</p>
+                <ul>
+                    <li>✅ <strong>Instant SQL Generation</strong> from the JSON you provide.</li>
+                    <li>🧠 <strong>Smart Field Disambiguation</strong> for handling duplicate field names.</li>
+                    <li>📋 <strong>Export to Multiple Formats</strong> like Python, dbt, and Jupyter.</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if json_data:
+                temp_schema, disambiguation_info = render_enhanced_disambiguation_info(json_data)
+                
+                st.markdown("### 📝 Query Configuration")
+                input_col1, input_col2 = st.columns(2)
+                with input_col1:
+                    table_name = st.text_input("Table Name*", key="py_table", placeholder="your_schema.your_table", help="Snowflake table containing your JSON data")
+                    field_conditions = st.text_area("Field Conditions*", height=120, key="py_fields", placeholder="e.g., name, company.name, user.profile.age", help="Specify JSON fields and optional conditions.")
+                with input_col2:
+                    json_column = st.text_input("JSON Column Name*", key="py_json_col", placeholder="json_data", help="Name of the column containing JSON data in your table")
+                    execution_mode = st.radio("Choose Action:", ["📝 Generate SQL Only", "📋 Export for External Use"], key="py_execution_mode", help="Choose how to handle the generated SQL")
+
+                # Field parsing debug for Python mode
+                if field_conditions:
+                    with st.expander("🔍 Field Parsing Debug (Python Mode)", expanded=True):
+                        parsed_fields = parse_field_conditions_enhanced(field_conditions)
+                        expected_columns = count_expected_columns_from_conditions(field_conditions, temp_schema, disambiguation_info)
+
+                if execution_mode == "📋 Export for External Use":
+                    export_format = st.selectbox("Export Format:", ["SQL File", "Python Script", "dbt Model", "Jupyter Notebook", "PowerBI Template"], key="py_export_format")
+
+                st.markdown("### 🚀 Generation & Execution")
+                mode_display = execution_mode.split(' ', 1)[1]
+                
+                sub_col1, sub_col2 = st.columns([1, 2])
+                with sub_col1:
+                    generate_btn = st.button(f"🚀 {mode_display}", type="primary", use_container_width=True)
+                with sub_col2:
+                    st.markdown(f"""<div class="execution-mode-box" style="text-align:center;"><h6 style="margin-bottom: 0rem; color: #1976d2;">🎯 Current Mode: {mode_display}</h6></div>""", unsafe_allow_html=True)
+
+                if temp_schema:
+                    with st.expander("📊 JSON Structure Info", expanded=False):
+                        queryable_count = sum(1 for details in temp_schema.values() if details.get('is_queryable', False))
+                        st.metric("Queryable Fields", queryable_count)
+                        st.metric("Total Fields", len(temp_schema))
+                        if disambiguation_info:
+                            st.metric("Name Conflicts", len(disambiguation_info))
+                
+                render_enhanced_python_field_suggestions(temp_schema, disambiguation_info)
+
+                if generate_btn:
+                    if not all([table_name, json_column, field_conditions]):
+                        st.error("❌ Please fill in all required fields marked with *.")
+                    else:
+                        with st.spinner("🔍 Generating SQL with enhanced field parsing..."):
+                            try:
+                                sql, warnings, disambiguation_details = generate_enhanced_sql_python_mode(json_data, table_name, json_column, field_conditions)
+                                
+                                # Debug: Show actual column count in generated SQL
+                                actual_select_count = sql.count("json_data:$") + sql.count("value:")
+                                st.info(f"🔍 **Generated SQL Analysis:** Found {actual_select_count} field extractions in the query")
+                                
+                                if warnings:
+                                    st.markdown("#### 🔔 Disambiguation Alerts")
+                                    for warning in warnings: 
+                                        st.warning(warning)
+                                
+                                st.markdown("---")
+                                if execution_mode == "📝 Generate SQL Only":
+                                    st.success("✅ SQL Generated Successfully!")
+                                    st.code(sql, language="sql")
+                                    st.download_button("📋 Download SQL Query", data=sql, file_name="generated_query.sql", mime="text/sql")
+                                elif execution_mode == "📋 Export for External Use":
+                                    export_format_val = safe_get_session_state('py_export_format', 'SQL File')
+                                    st.success(f"📋 {export_format_val} generated successfully!")
+                                    export_content = generate_export_content(sql, export_format_val, table_name, field_conditions)
+                                    with st.expander("👀 Export Content Preview", expanded=True):
+                                        st.code(export_content, language="sql" if "sql" in export_format_val.lower() else "python")
+                                    st.download_button(f"📥 Download {export_format_val}", data=export_content, file_name=f"export.{get_file_extension(export_format_val)}", mime=get_mime_type(export_format_val))
+                                render_disambiguation_details(sql, warnings, field_conditions, disambiguation_details)
+                            except Exception as e:
+                                st.error(f"❌ SQL generation error: {str(e)}")
+
+                with st.expander("💡 Examples & Help", expanded=False):
+                    if temp_schema:
+                        example_col1, example_col2 = st.columns(2)
+                        with example_col1:
+                            st.markdown("**🎯 Examples for your JSON:**")
+                            example_fields = []
+                            for path, details in temp_schema.items():
+                                if details.get('is_queryable', False):
+                                    example_fields.append(path)
+                                    if len(example_fields) >= 3: 
+                                        break
+                            if example_fields:
+                                st.code(f"# Basic field selection\n{', '.join(example_fields[:2])}", language="text")
+                                if len(example_fields) >= 3: 
+                                    st.code(f"# Multiple fields\n{', '.join(example_fields)}", language="text")
+                                if disambiguation_info: 
+                                    st.markdown("**🚨 Disambiguation Examples:**")
+                                    conflict_field = list(disambiguation_info.keys())[0]
+                                    options = disambiguation_info[conflict_field]['paths'][:2]
+                                    st.code(f"# Ambiguous (auto-resolved)\n{conflict_field}", language="text")
+                                    st.code(f"# Explicit paths\n{', '.join([opt['full_path'] for opt in options])}", language="text")
+                        with example_col2:
+                            st.markdown("**📋 General Examples:**")
+                            examples = ["name, age, email", "user.name, user.profile.age[>:18]", "status[=:active], created_date[IS NOT NULL]", "tags[IN:premium|gold], score[>:100]"]
+                            for ex in examples: 
+                                st.code(ex, language="text")
+                    else:
+                        st.markdown("**📋 Standard Examples:**")
+                        example_cols = st.columns(2)
+                        with example_cols[0]: 
+                            examples1 = ["name, age, email", "user.name, user.profile.age[>:18]"]
+                            for ex in examples1: 
+                                st.code(ex, language="text")
+                        with example_cols[1]: 
+                            examples2 = ["status[=:active], created_date[IS NOT NULL]", "tags[IN:premium|gold], score[>:100]"]
+                            for ex in examples2: 
+                                st.code(ex, language="text")
+            else:
+                st.info("👆 Provide JSON data via the sidebar to begin.")
+
+        with main_tab2:
+            st.markdown('<h2 class="section-header">🏔️ Snowflake Database Connection</h2>', unsafe_allow_html=True)
+            st.markdown("""<div class="feature-box"><p>Choose the connection mode that best fits your needs. Enhanced Snowflake UI now matches Python mode experience!</p></div>""", unsafe_allow_html=True)
+            
+            col_mode1, col_mode2 = st.columns(2)
+            with col_mode1: 
+                st.markdown("""**🏔️ Standard Mode:**\n- ✅ Basic connectivity\n- 📊 Standard pandas processing\n- 🔧 Simple error handling\n- 💾 Good for small to medium datasets""")
+            with col_mode2: 
+                st.markdown("""**⚡ Enhanced Mode:**\n- 🛡️ **Fixed session context management**\n- 🚀 **Modin acceleration**\n- 📊 **Real-time performance tracking**\n- 🏷️ Smart table name resolution""")
+            
+            connection_mode = st.radio("Select Connection Mode:", ["🏔️ Standard Mode", "⚡ Enhanced Mode"], index=1, horizontal=True, help="Enhanced mode includes all standard features plus advanced capabilities")
+            enhanced_mode = "Enhanced" in connection_mode
+            
+            st.markdown("---")
+            st.subheader("🔐 Database Connection")
+            if render_unified_connection_ui:
+                conn_manager = render_unified_connection_ui(enhanced_mode=enhanced_mode)
+            else:
+                st.error("❌ Connection UI not available")
+                conn_manager = None
+            
+            if conn_manager and conn_manager.is_connected:
+                if test_database_connectivity:
+                    connectivity_ok, status_msg = test_database_connectivity(conn_manager)
+                else:
+                    connectivity_ok = True
+                    status_msg = "Connection appears active"
+                
+                if connectivity_ok:
+                    st.success(status_msg)
+                    st.markdown("---")
+                    st.subheader("📊 Enhanced Database Operations")
+                    render_enhanced_snowflake_ui(conn_manager)
+                else: 
+                    st.error(status_msg)
+                    st.info("💡 Try disconnecting and reconnecting with correct database/schema settings.")
+            else: 
+                st.markdown("---")
+                mode_text = "Enhanced" if enhanced_mode else "Standard"
+                st.info(f"👆 **Connect using {mode_text} mode above to unlock enhanced database operations.**")
+        
+        st.markdown("""
+        <div class="footer">
+            <p><strong>🚀 Enhanced JSON-to-SQL Analyzer</strong> | Built with ❤️ using Streamlit</p>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin-top: 1rem; text-align: center;">
+                <div><h4 style="color: #1976d2;">🐍 Python Mode</h4><p>Instant SQL generation<br/>Enhanced field parsing<br/>Debug multi-field support</p></div>
+                <div><h4 style="color: #2e7d32;">🏔️ Database Mode</h4><p>Live Snowflake connectivity<br/>Enhanced UI matching Python<br/>Real database operations</p></div>
+                <div><h4 style="color: #9c27b0;">🚀 Key Features</h4><p>Fixed multi-field parsing<br/>Smart field disambiguation<br/>Enhanced debugging tools</p></div>
+            </div>
+            <hr style="margin: 2rem 0; border: 1px solid #e9ecef;">
+            <p><small>
+                <strong>🎯 Fixed Issues:</strong> Multi-field parsing now works properly!<br/>
+                <strong>⚡ Enhanced UI:</strong> Snowflake mode now matches Python mode experience<br/>
+                <strong>📋 Debug Tools:</strong> Field parsing analysis and column count verification
+            </small></p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    except Exception as e:
+        logger.error(f"Application error: {str(e)}")
+        st.error(f"❌ Application Error: {str(e)}")
 
 
 if __name__ == "__main__":
-    logger.info("Enhanced Python SQL Generator with Multi-Level Field Support loaded successfully")
+    main()
