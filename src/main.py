@@ -170,27 +170,32 @@ def get_json_data_from_sidebar() -> Optional[Dict]:
     json_data = None
     
     if input_method == "📝 Paste JSON":
+        # Check if we should show prettified version
+        display_text = ""
+        if st.session_state.get('show_prettified', False):
+            display_text = st.session_state.get('prettified_json', '')
+            # Reset the flag
+            st.session_state.show_prettified = False
+        
         json_text = st.sidebar.text_area(
             "Paste your JSON data:",
+            value=display_text,  # Use the prettified text if available
             height=200,
             placeholder='{\n  "name": "John Doe",\n  "age": 30,\n  "email": "john@example.com"\n}',
             key="json_input_text"
         )
         
-        # Check if we should show prettified version
-display_text = ""
-if st.session_state.get('show_prettified', False):
-    display_text = st.session_state.get('prettified_json', '')
-    # Reset the flag
-    st.session_state.show_prettified = False
-
-json_text = st.sidebar.text_area(
-    "Paste your JSON data:",
-    value=display_text,  # Use the prettified text if available
-    height=200,
-    placeholder='{\n  "name": "John Doe",\n  "age": 30,\n  "email": "john@example.com"\n}',
-    key="json_input_text"
-)
+        if st.sidebar.button("🎨 Prettify JSON"):
+            if json_text.strip():
+                try:
+                    parsed_json = json.loads(json_text)
+                    pretty_json = json.dumps(parsed_json, indent=4)
+                    # FIXED: Use a different session state key
+                    st.session_state.prettified_json = pretty_json
+                    st.session_state.show_prettified = True
+                    st.rerun()
+                except json.JSONDecodeError:
+                    st.sidebar.warning("⚠️ Invalid JSON. Cannot prettify.")
         
         if json_text.strip():
             try:
@@ -224,7 +229,6 @@ json_text = st.sidebar.text_area(
         st.session_state['json_data'] = json_data
     
     return json_data
-
 
 def safe_get_session_state(key: str, default: Any = None) -> Any:
     """Safely get value from session state with default"""
@@ -303,9 +307,10 @@ def generate_export_content(sql, export_format, table_name, field_conditions=Non
     elif export_format == "Python Script":
         return f"""#!/usr/bin/env python3
 """
+    
     elif export_format == "dbt Model":
-    model_name = table_name.split('.')[-1].lower().replace('-', '_')
-    return f"""{{{{
+        model_name = table_name.split('.')[-1].lower().replace('-', '_')
+        return f"""{{{{
   config(
     materialized='view',
     description='JSON analysis model for {table_name}'
@@ -317,7 +322,8 @@ def generate_export_content(sql, export_format, table_name, field_conditions=Non
 -- Generated: {timestamp}
 
 {sql}
-""" 
+"""
+    
     elif export_format == "Jupyter Notebook":
         notebook_content = { "cells": [ ], "metadata": { } }
         return json.dumps(notebook_content, indent=2)
@@ -328,7 +334,6 @@ def generate_export_content(sql, export_format, table_name, field_conditions=Non
 """
     else:
         return f"# Unknown export format: {export_format}\n{sql}"
-
 
 def get_file_extension(export_format):
     extensions = { "SQL File": "sql", "Python Script": "py", "dbt Model": "sql", "Jupyter Notebook": "ipynb", "PowerBI Template": "txt" }
