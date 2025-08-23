@@ -517,55 +517,55 @@ class PythonSQLGenerator:
         return alias
     
     def _build_from_clause_optimized(self, table_name: str, json_column: str, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
-    """
-    OPTIMIZED: Build FROM clause without duplicate LATERAL FLATTEN aliases
-    """
-    from_parts = [table_name]
-    required_flattens = {}
-    
-    # Collect all required flattens
-    for field_info in fields_info:
-        array_context = field_info['schema_entry'].get('array_context', [])
+        """
+        OPTIMIZED: Build FROM clause without duplicate LATERAL FLATTEN aliases
+        """
+        from_parts = [table_name]
+        required_flattens = {}
         
-        for i, context in enumerate(array_context):
-            context_tuple = tuple(array_context[:i+1])
+        # Collect all required flattens
+        for field_info in fields_info:
+            array_context = field_info['schema_entry'].get('array_context', [])
             
-            if context_tuple not in required_flattens:
-                required_flattens[context_tuple] = {
-                    'level': i,
-                    'array_path': context,
-                    'full_context': array_context[:i+1]
-                }
-    
-    # Sort flattens by level to ensure proper order
-    sorted_flattens = sorted(required_flattens.items(), key=lambda x: x[1]['level'])
-    
-    # Build LATERAL FLATTEN clauses
-    for context_tuple, flatten_info in sorted_flattens:
-        level = flatten_info['level']
-        array_path = flatten_info['array_path']
-        flatten_alias = self._get_flatten_alias(flatten_info['full_context'])
+            for i, context in enumerate(array_context):
+                context_tuple = tuple(array_context[:i+1])
+                
+                if context_tuple not in required_flattens:
+                    required_flattens[context_tuple] = {
+                        'level': i,
+                        'array_path': context,
+                        'full_context': array_context[:i+1]
+                    }
         
-        if level == 0:
-            # Top-level array
-            clean_path = array_path.replace('.', ':')
-            flatten_input = f"{json_column}:{clean_path}"
-        else:
-            # Nested array
-            parent_context = tuple(flatten_info['full_context'][:level])
-            parent_alias = self._get_flatten_alias(list(parent_context))
-            parent_array_path = flatten_info['full_context'][level-1]
+        # Sort flattens by level to ensure proper order
+        sorted_flattens = sorted(required_flattens.items(), key=lambda x: x[1]['level'])
+        
+        # Build LATERAL FLATTEN clauses
+        for context_tuple, flatten_info in sorted_flattens:
+            level = flatten_info['level']
+            array_path = flatten_info['array_path']
+            flatten_alias = self._get_flatten_alias(flatten_info['full_context'])
             
-            if array_path.startswith(parent_array_path + '.'):
-                relative_path = array_path[len(parent_array_path) + 1:]
+            if level == 0:
+                # Top-level array
+                clean_path = array_path.replace('.', ':')
+                flatten_input = f"{json_column}:{clean_path}"
             else:
-                relative_path = array_path.split('.')[-1]
+                # Nested array
+                parent_context = tuple(flatten_info['full_context'][:level])
+                parent_alias = self._get_flatten_alias(list(parent_context))
+                parent_array_path = flatten_info['full_context'][level-1]
+                
+                if array_path.startswith(parent_array_path + '.'):
+                    relative_path = array_path[len(parent_array_path) + 1:]
+                else:
+                    relative_path = array_path.split('.')[-1]
+                
+                flatten_input = f"{parent_alias}.value:{relative_path}"
             
-            flatten_input = f"{parent_alias}.value:{relative_path}"
+            from_parts.append(f"LATERAL FLATTEN(input => {flatten_input}) {flatten_alias}")
         
-        from_parts.append(f"LATERAL FLATTEN(input => {flatten_input}) {flatten_alias}")
-    
-    return f"FROM {', '.join(from_parts)}"
+        return f"FROM {', '.join(from_parts)}"
     
     def _calculate_relative_path_dynamic(self, full_path: str, array_context: List[str]) -> str:
         """Calculate relative path within flattened context"""
