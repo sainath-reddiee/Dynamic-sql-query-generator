@@ -499,22 +499,22 @@ class PythonSQLGenerator:
         return f"{preferred_alias}_{counter}"
     
     def _get_flatten_alias(self, array_context: List[str]) -> str:
-    """Get or create flatten alias, ensuring uniqueness"""
-    context_key = tuple(array_context)
-    
-    if context_key in self.flatten_alias_map:
-        return self.flatten_alias_map[context_key]
-    
-    # Generate unique alias
-    counter = 1
-    while True:
-        alias = f"f{counter}"
-        if alias not in self.flatten_alias_map.values():
-            break
-        counter += 1
-    
-    self.flatten_alias_map[context_key] = alias
-    return alias
+        """Get or create flatten alias, ensuring uniqueness"""
+        context_key = tuple(array_context)
+        
+        if context_key in self.flatten_alias_map:
+            return self.flatten_alias_map[context_key]
+        
+        # Generate unique alias
+        counter = 1
+        while True:
+            alias = f"f{counter}"
+            if alias not in self.flatten_alias_map.values():
+                break
+            counter += 1
+        
+        self.flatten_alias_map[context_key] = alias
+        return alias
     
     def _build_from_clause_optimized(self, table_name: str, json_column: str, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
     """
