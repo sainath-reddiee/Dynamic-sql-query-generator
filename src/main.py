@@ -287,7 +287,7 @@ def generate_mock_results_from_json(json_data, field_conditions, num_rows=10):
                 elif any(keyword in field.lower() for keyword in ['name', 'title']):
                     # Name-like fields
                     names = ['John Doe', 'Jane Smith', 'Bob Johnson', 'Alice Brown', 'Charlie Davis', 
-                            'Emma Wilson', 'Michael Chen', 'Sarah Miller', 'David Lee', 'Lisa Garcia']
+                             'Emma Wilson', 'Michael Chen', 'Sarah Miller', 'David Lee', 'Lisa Garcia']
                     mock_data[field] = [random.choice(names) for _ in range(num_rows)]
                 else:
                     # Generic string - use sample as base
@@ -484,81 +484,203 @@ if __name__ == "__main__":
 """
     
     elif export_format == "Jupyter Notebook":
-        notebook_content = {{
+        # FIX: Replaced the placeholder notebook with the full, detailed version.
+        notebook_content = {
             "cells": [
-                {{
+                {
                     "cell_type": "markdown",
                     "metadata": {},
                     "source": [
-                        "## 💾 Export Results\\n",
-                        "Save the results to various formats."
+                        "# ❄️ Snowflake JSON Analysis Notebook\n",
+                        f"**Generated:** {timestamp}\n",
+                        f"**Table:** {table_name}\n",
+                        f"**Fields:** {field_conditions or 'N/A'}\n\n",
+                        "This notebook contains the generated SQL query for JSON analysis in Snowflake.\n",
+                        "Update the connection parameters and run the cells below to execute the query and analyze the results."
                     ]
-                }},
-                {{
-                    "cell_type": "code",
-                    "execution_count": None,
+                },
+                {
+                    "cell_type": "markdown",
                     "metadata": {},
-                    "outputs": [],
+                    "source": ["## 📦 1. Install Required Packages"]
+                },
+                {
+                    "cell_type": "code",
+                    "execution_count": None, "metadata": {}, "outputs": [],
                     "source": [
-                        "if df is not None and len(df) > 0:\\n",
-                        "    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')\\n",
-                        "    \\n",
-                        "    # Save to CSV\\n",
-                        "    csv_file = f'snowflake_results_{{timestamp}}.csv'\\n",
-                        "    df.to_csv(csv_file, index=False)\\n",
-                        "    print(f'📊 CSV exported: {{csv_file}}')\\n",
-                        "    \\n",
-                        "    # Save to Excel\\n",
-                        "    try:\\n",
-                        "        excel_file = f'snowflake_results_{{timestamp}}.xlsx'\\n",
-                        "        with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:\\n",
-                        "            df.to_excel(writer, sheet_name='Results', index=False)\\n",
-                        "            \\n",
-                        "            # Add summary sheet\\n",
-                        "            summary_df = pd.DataFrame({{\\n",
-                        "                'Metric': ['Total Rows', 'Total Columns', 'Generated Date', 'Source Table'],\\n",
-                        "                'Value': [len(df), len(df.columns), timestamp, '{table_name}']\\n",
-                        "            }})\\n",
-                        "            summary_df.to_excel(writer, sheet_name='Summary', index=False)\\n",
-                        "        print(f'📈 Excel exported: {{excel_file}}')\\n",
-                        "    except ImportError:\\n",
-                        "        print('⚠️ openpyxl not installed - Excel export skipped')\\n",
-                        "    \\n",
-                        "    # Save to JSON\\n",
-                        "    json_file = f'snowflake_results_{{timestamp}}.json'\\n",
-                        "    df.to_json(json_file, orient='records', indent=2)\\n",
-                        "    print(f'📋 JSON exported: {{json_file}}')\\n",
-                        "    \\n",
-                        "    print(f'\\\\n✅ All exports completed successfully!')\\n",
-                        "else:\\n",
-                        "    print('❌ No data to export')"
+                        "!pip install snowflake-connector-python pandas matplotlib seaborn jupyter"
                     ]
-                }}
+                },
+                {
+                    "cell_type": "markdown",
+                    "metadata": {},
+                    "source": ["## ⚙️ 2. Import Libraries & Configure"]
+                },
+                {
+                    "cell_type": "code",
+                    "execution_count": None, "metadata": {}, "outputs": [],
+                    "source": [
+                        "import snowflake.connector\n",
+                        "import pandas as pd\n",
+                        "import matplotlib.pyplot as plt\n",
+                        "import seaborn as sns\n",
+                        "from datetime import datetime\n\n",
+                        "pd.set_option('display.max_columns', 100)\n",
+                        "print('✅ Libraries imported successfully!')"
+                    ]
+                },
+                {
+                    "cell_type": "markdown",
+                    "metadata": {},
+                    "source": [
+                        "## 🔗 3. Snowflake Connection Setup\n",
+                        "**Important:** Update the `conn_params` dictionary below with your actual Snowflake credentials."
+                    ]
+                },
+                {
+                    "cell_type": "code",
+                    "execution_count": None, "metadata": {}, "outputs": [],
+                    "source": [
+                        "# IMPORTANT: Update these with your actual credentials\n",
+                        "conn_params = {\n",
+                        "    'account': 'your_account.region',\n",
+                        "    'user': 'your_username',\n",
+                        "    'password': 'your_password',  # Consider using getpass for security\n",
+                        "    'database': 'your_database',\n",
+                        "    'schema': 'your_schema',\n",
+                        "    'warehouse': 'your_warehouse'\n",
+                        "}\n\n",
+                        "print('🔧 Connection parameters configured.')"
+                    ]
+                },
+                {
+                    "cell_type": "markdown",
+                    "metadata": {},
+                    "source": ["## 📋 4. Generated SQL Query"]
+                },
+                {
+                    "cell_type": "code",
+                    "execution_count": None, "metadata": {}, "outputs": [],
+                    "source": [
+                        f"# Generated SQL Query\n",
+                        f'query = """\n{sql.strip()}\n"""\n\n',
+                        "print('📝 Query loaded successfully.')\n",
+                        "print('-' * 20 + ' QUERY PREVIEW ' + '-' * 20)\n",
+                        "print(query[:500] + ('...' if len(query) > 500 else ''))"
+                    ]
+                },
+                {
+                    "cell_type": "markdown",
+                    "metadata": {},
+                    "source": ["## 🚀 5. Execute Query & Fetch Data"]
+                },
+                {
+                    "cell_type": "code",
+                    "execution_count": None, "metadata": {}, "outputs": [],
+                    "source": [
+                        "df = None\n",
+                        "try:\n",
+                        "    print('🔗 Connecting to Snowflake...')\n",
+                        "    with snowflake.connector.connect(**conn_params) as conn:\n",
+                        "        print('📊 Executing query...')\n",
+                        "        df = pd.read_sql(query, conn)\n",
+                        "        print(f'✅ Success! Retrieved {{len(df):,}} rows with {{len(df.columns)}} columns.')\n",
+                        "except Exception as e:\n",
+                        "    print(f'❌ Execution Error: {{e}}')"
+                    ]
+                },
+                {
+                    "cell_type": "markdown",
+                    "metadata": {},
+                    "source": ["## 👀 6. Data Preview & Analysis"]
+                },
+                {
+                    "cell_type": "code",
+                    "execution_count": None, "metadata": {}, "outputs": [],
+                    "source": [
+                        "if df is not None:\n",
+                        "    print('--- First 5 Rows ---')\n",
+                        "    display(df.head())\n\n",
+                        "    print('\\n--- Data Types & Non-Null Counts ---')\n",
+                        "    display(df.info())\n\n",
+                        "    print('\\n--- Numerical Statistics ---')\n",
+                        "    display(df.describe())\n",
+                        "else:\n",
+                        "    print('❌ No data available to display.')"
+                    ]
+                },
+                {
+                    "cell_type": "markdown",
+                    "metadata": {},
+                    "source": ["## 📈 7. Data Visualization (Optional)"]
+                },
+                {
+                    "cell_type": "code",
+                    "execution_count": None, "metadata": {}, "outputs": [],
+                    "source": [
+                        "if df is not None and not df.empty:\n",
+                        "    # Select first numerical and categorical column for plotting\n",
+                        "    num_cols = df.select_dtypes(include=['number']).columns\n",
+                        "    cat_cols = df.select_dtypes(include=['object', 'category']).columns\n\n",
+                        "    fig, axes = plt.subplots(1, 2, figsize=(16, 6))\n",
+                        "    fig.suptitle('Basic Data Visualization', fontsize=16)\n\n",
+                        "    if len(num_cols) > 0:\n",
+                        "        sns.histplot(df[num_cols[0]], kde=True, ax=axes[0])\n",
+                        "        axes[0].set_title(f'Distribution of {{num_cols[0]}}')\n",
+                        "    else:\n",
+                        "        axes[0].text(0.5, 0.5, 'No numerical data to plot', ha='center')\n\n",
+                        "    if len(cat_cols) > 0:\n",
+                        "        # Plot top 10 categories\n",
+                        "        top_10 = df[cat_cols[0]].value_counts().nlargest(10)\n",
+                        "        sns.barplot(x=top_10.index, y=top_10.values, ax=axes[1])\n",
+                        "        axes[1].set_title(f'Top 10 Categories in {{cat_cols[0]}}')\n",
+                        "        axes[1].tick_params(axis='x', rotation=45)\n",
+                        "    else:\n",
+                        "        axes[1].text(0.5, 0.5, 'No categorical data to plot', ha='center')\n\n",
+                        "    plt.tight_layout(rect=[0, 0, 1, 0.96])\n",
+                        "    plt.show()\n",
+                        "else:\n",
+                        "    print('❌ No data to visualize.')"
+                    ]
+                },
+                {
+                    "cell_type": "markdown",
+                    "metadata": {},
+                    "source": ["## 💾 8. Export Results"]
+                },
+                {
+                    "cell_type": "code",
+                    "execution_count": None, "metadata": {}, "outputs": [],
+                    "source": [
+                        "if df is not None and not df.empty:\n",
+                        "    timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')\n",
+                        "    csv_filename = f'snowflake_results_{timestamp_str}.csv'\n",
+                        "    df.to_csv(csv_filename, index=False)\n",
+                        "    print(f'✅ Results exported to: {csv_filename}')\n",
+                        "else:\n",
+                        "    print('❌ No data to export.')"
+                    ]
+                }
             ],
-            "metadata": {{
-                "kernelspec": {{
-                    "display_name": "Python 3",
-                    "language": "python",
-                    "name": "python3"
-                }},
-                "language_info": {{
-                    "codemirror_mode": {{
-                        "name": "ipython",
-                        "version": 3
-                    }},
+            "metadata": {
+                "kernelspec": {
+                    "display_name": "Python 3", "language": "python", "name": "python3"
+                },
+                "language_info": {
+                    "codemirror_mode": {"name": "ipython", "version": 3},
                     "file_extension": ".py",
                     "mimetype": "text/x-python",
                     "name": "python",
                     "nbconvert_exporter": "python",
                     "pygments_lexer": "ipython3",
-                    "version": "3.8.0"
-                }}
-            }},
+                    "version": "3.9.7"
+                }
+            },
             "nbformat": 4,
             "nbformat_minor": 4
-        }}
+        }
         return json.dumps(notebook_content, indent=2)
-    
+
     elif export_format == "PowerBI Template":
         return f"""# Power BI Data Source Template
 # Generated: {timestamp}
@@ -1157,8 +1279,8 @@ LIMIT 10;""",
                                             mime="text/csv"
                                         )
 
-                                        # Enhanced performance summary
-                                        st.info(f"⚡ **Enhanced Performance Summary:** Processed {len(result_df):,} rows in {perf_stats.get('total_time', 0):.2f}s using {processing_engine} with disambiguation support")
+                                    # Enhanced performance summary
+                                    st.info(f"⚡ **Enhanced Performance Summary:** Processed {len(result_df):,} rows in {perf_stats.get('total_time', 0):.2f}s using {processing_engine} with disambiguation support")
                                 else:
                                     st.error(f"❌ Query execution failed: {exec_error}")
                         else:
@@ -1953,230 +2075,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-                    "cell_type": "markdown",
-                    "metadata": {{}},
-                    "source": [
-                        "# Snowflake JSON Analysis Notebook\\n",
-                        f"**Generated:** {timestamp}\\n",
-                        f"**Table:** {table_name}\\n",
-                        f"**Fields:** {field_conditions or 'N/A'}\\n",
-                        "\\n",
-                        "This notebook contains the generated SQL query for JSON analysis in Snowflake.\\n",
-                        "Update the connection parameters and run the cells below."
-                    ]
-                }},
-                {{
-                    "cell_type": "markdown",
-                    "metadata": {{}},
-                    "source": [
-                        "## 📦 Install Required Packages\\n",
-                        "Run this cell first to install required dependencies."
-                    ]
-                }},
-                {{
-                    "cell_type": "code",
-                    "execution_count": None,
-                    "metadata": {{}},
-                    "outputs": [],
-                    "source": [
-                        "# Install required packages\\n",
-                        "!pip install snowflake-connector-python pandas matplotlib seaborn\\n",
-                        "\\n",
-                        "import snowflake.connector\\n",
-                        "import pandas as pd\\n",
-                        "import matplotlib.pyplot as plt\\n",
-                        "import seaborn as sns\\n",
-                        "from datetime import datetime\\n",
-                        "\\n",
-                        "print('✅ Packages imported successfully!')"
-                    ]
-                }},
-                {{
-                    "cell_type": "markdown",
-                    "metadata": {{}},
-                    "source": [
-                        "## 🔗 Snowflake Connection Setup\\n",
-                        "**Important:** Update the connection parameters below with your actual Snowflake credentials."
-                    ]
-                }},
-                {{
-                    "cell_type": "code",
-                    "execution_count": None,
-                    "metadata": {{}},
-                    "outputs": [],
-                    "source": [
-                        "# Snowflake connection configuration\\n",
-                        "# IMPORTANT: Update these with your actual credentials\\n",
-                        "conn_params = {{\\n",
-                        "    'account': 'your_account.region',\\n",
-                        "    'user': 'your_username',\\n",
-                        "    'password': 'your_password',  # Consider using getpass for security\\n",
-                        "    'database': 'your_database',\\n",
-                        "    'schema': 'your_schema',\\n",
-                        "    'warehouse': 'your_warehouse'\\n",
-                        "}}\\n",
-                        "\\n",
-                        "# Alternative: Use environment variables for security\\n",
-                        "# import os\\n",
-                        "# conn_params['password'] = os.getenv('SNOWFLAKE_PASSWORD')\\n",
-                        "\\n",
-                        "print('🔧 Connection parameters configured')"
-                    ]
-                }},
-                {{
-                    "cell_type": "markdown",
-                    "metadata": {{}},
-                    "source": [
-                        "## 📊 Generated SQL Query\\n",
-                        "This is the SQL query generated from your JSON analysis requirements."
-                    ]
-                }},
-                {{
-                    "cell_type": "code",
-                    "execution_count": None,
-                    "metadata": {{}},
-                    "outputs": [],
-                    "source": [
-                        f"# Generated SQL Query\\n",
-                        f'query = \"\"\"\\n{sql.strip()}\\n\"\"\"\\n',
-                        "\\n",
-                        "print('📝 Query loaded:')\\n",
-                        "print(query[:200] + '...' if len(query) > 200 else query)"
-                    ]
-                }},
-                {{
-                    "cell_type": "markdown",
-                    "metadata": {{}},
-                    "source": [
-                        "## 🚀 Execute Query\\n",
-                        "Connect to Snowflake and execute the generated query."
-                    ]
-                }},
-                {{
-                    "cell_type": "code",
-                    "execution_count": None,
-                    "metadata": {{}},
-                    "outputs": [],
-                    "source": [
-                        "# Execute query and get results\\n",
-                        "try:\\n",
-                        "    print('🔗 Connecting to Snowflake...')\\n",
-                        "    conn = snowflake.connector.connect(**conn_params)\\n",
-                        "    \\n",
-                        "    print('📊 Executing query...')\\n",
-                        "    df = pd.read_sql(query, conn)\\n",
-                        "    \\n",
-                        "    print(f'✅ Success! Retrieved {{len(df)}} rows with {{len(df.columns)}} columns')\\n",
-                        "    \\n",
-                        "    # Display basic information\\n",
-                        "    print('\\\\n📋 Dataset Info:')\\n",
-                        "    print(f'Rows: {{len(df):,}}')\\n",
-                        "    print(f'Columns: {{len(df.columns)}}')\\n",
-                        "    print(f'Memory usage: {{df.memory_usage(deep=True).sum() / 1024**2:.2f}} MB')\\n",
-                        "    \\n",
-                        "    conn.close()\\n",
-                        "    \\n",
-                        "except Exception as e:\\n",
-                        "    print(f'❌ Error: {{e}}')\\n",
-                        "    df = None"
-                    ]
-                }},
-                {{
-                    "cell_type": "markdown",
-                    "metadata": {{}},
-                    "source": [
-                        "## 👀 Data Preview\\n",
-                        "Display the first few rows and basic statistics."
-                    ]
-                }},
-                {{
-                    "cell_type": "code",
-                    "execution_count": None,
-                    "metadata": {{}},
-                    "outputs": [],
-                    "source": [
-                        "if df is not None:\\n",
-                        "    print('🔍 First 10 rows:')\\n",
-                        "    display(df.head(10))\\n",
-                        "    \\n",
-                        "    print('\\\\n📊 Column Information:')\\n",
-                        "    display(df.dtypes.to_frame('Data Type'))\\n",
-                        "    \\n",
-                        "    print('\\\\n📈 Basic Statistics:')\\n",
-                        "    display(df.describe(include='all'))\\n",
-                        "else:\\n",
-                        "    print('❌ No data available - check connection and query execution above')"
-                    ]
-                }},
-                {{
-                    "cell_type": "markdown",
-                    "metadata": {{}},
-                    "source": [
-                        "## 📊 Data Visualization\\n",
-                        "Create some basic visualizations of the results."
-                    ]
-                }},
-                {{
-                    "cell_type": "code",
-                    "execution_count": None,
-                    "metadata": {{}},
-                    "outputs": [],
-                    "source": [
-                        "if df is not None and len(df) > 0:\\n",
-                        "    # Set up plotting style\\n",
-                        "    plt.style.use('seaborn-v0_8')\\n",
-                        "    fig, axes = plt.subplots(2, 2, figsize=(15, 12))\\n",
-                        "    fig.suptitle(f'Data Analysis: {table_name}', fontsize=16)\\n",
-                        "    \\n",
-                        "    # Plot 1: Data types distribution\\n",
-                        "    type_counts = df.dtypes.value_counts()\\n",
-                        "    axes[0,0].pie(type_counts.values, labels=type_counts.index, autopct='%1.1f%%')\\n",
-                        "    axes[0,0].set_title('Column Data Types')\\n",
-                        "    \\n",
-                        "    # Plot 2: Missing values\\n",
-                        "    missing_data = df.isnull().sum()\\n",
-                        "    missing_data = missing_data[missing_data > 0]\\n",
-                        "    if len(missing_data) > 0:\\n",
-                        "        missing_data.plot(kind='bar', ax=axes[0,1])\\n",
-                        "        axes[0,1].set_title('Missing Values by Column')\\n",
-                        "        axes[0,1].tick_params(axis='x', rotation=45)\\n",
-                        "    else:\\n",
-                        "        axes[0,1].text(0.5, 0.5, 'No Missing Values', ha='center', va='center', transform=axes[0,1].transAxes)\\n",
-                        "        axes[0,1].set_title('Missing Values')\\n",
-                        "    \\n",
-                        "    # Plot 3: Numeric columns distribution (first numeric column)\\n",
-                        "    numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns\\n",
-                        "    if len(numeric_cols) > 0:\\n",
-                        "        df[numeric_cols[0]].hist(bins=20, ax=axes[1,0])\\n",
-                        "        axes[1,0].set_title(f'Distribution: {{numeric_cols[0]}}')\\n",
-                        "    else:\\n",
-                        "        axes[1,0].text(0.5, 0.5, 'No Numeric Columns', ha='center', va='center', transform=axes[1,0].transAxes)\\n",
-                        "        axes[1,0].set_title('Numeric Distribution')\\n",
-                        "    \\n",
-                        "    # Plot 4: Record count over time (if date column exists)\\n",
-                        "    date_cols = df.select_dtypes(include=['datetime64', 'object']).columns\\n",
-                        "    date_col = None\\n",
-                        "    for col in date_cols:\\n",
-                        "        if any(keyword in col.lower() for keyword in ['date', 'time', 'created', 'updated']):\\n",
-                        "            try:\\n",
-                        "                pd.to_datetime(df[col].dropna().head(10))\\n",
-                        "                date_col = col\\n",
-                        "                break\\n",
-                        "            except:\\n",
-                        "                continue\\n",
-                        "    \\n",
-                        "    if date_col:\\n",
-                        "        df[date_col] = pd.to_datetime(df[date_col], errors='coerce')\\n",
-                        "        df.set_index(date_col).resample('D').size().plot(ax=axes[1,1])\\n",
-                        "        axes[1,1].set_title(f'Records Over Time: {{date_col}}')\\n",
-                        "    else:\\n",
-                        "        axes[1,1].text(0.5, 0.5, 'No Date Columns Found', ha='center', va='center', transform=axes[1,1].transAxes)\\n",
-                        "        axes[1,1].set_title('Timeline Analysis')\\n",
-                        "    \\n",
-                        "    plt.tight_layout()\\n",
-                        "    plt.show()\\n",
-                        "else:\\n",
-                        "    print('❌ No data available for visualization')"
-                    ]
-                }},
-                {{
