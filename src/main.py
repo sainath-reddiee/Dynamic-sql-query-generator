@@ -251,7 +251,7 @@ def generate_export_content(sql, export_format, table_name, field_conditions=Non
 """
     
     elif export_format == "Jupyter Notebook":
-        notebook_content = { "cells": [ ... ], "metadata": { ... } }
+        notebook_content = { "cells": [ ], "metadata": { } }
         return json.dumps(notebook_content, indent=2)
 
     elif export_format == "PowerBI Template":
@@ -520,7 +520,6 @@ LIMIT 10;""",
                 st.error(f"❌ Error listing tables: {str(e)}")
 
     # Enhanced Smart JSON Analysis Section with disambiguation
-    # Enhanced Smart JSON Analysis Section with disambiguation
     st.markdown("---")
     st.markdown("### 🧪 Smart JSON Analysis with Disambiguation")
 
@@ -718,8 +717,10 @@ LIMIT 10;""",
                                     render_performance_metrics(perf_stats)
 
                                 col_sum1, col_sum2, col_sum3, col_sum4 = st.columns(4)
-                                with col_sum1: st.metric("Rows Returned", len(result_df))
-                                with col_sum2: st.metric("Columns", len(result_df.columns))
+                                with col_sum1: 
+                                    st.metric("Rows Returned", len(result_df))
+                                with col_sum2: 
+                                    st.metric("Columns", len(result_df.columns))
                                 with col_sum3:
                                     processing_engine = "🚀 Modin" if perf_stats.get('modin_used', False) else "📊 Pandas"
                                     st.metric("Processing Engine", processing_engine)
@@ -744,21 +745,27 @@ LIMIT 10;""",
                             if result_df is not None:
                                 st.success("✅ Query executed successfully with disambiguation support!")
                                 col_sum1, col_sum2, col_sum3 = st.columns(3)
-                                with col_sum1: st.metric("Rows Returned", len(result_df))
-                                with col_sum2: st.metric("Columns", len(result_df.columns))
+                                with col_sum1: 
+                                    st.metric("Rows Returned", len(result_df))
+                                with col_sum2: 
+                                    st.metric("Columns", len(result_df.columns))
                                 with col_sum3:
                                     aliases_used = [col for col in result_df.columns if '_' in col and not col.startswith('_')]
                                     disambiguation_used = "✅ Applied" if len(aliases_used) > 0 else "➖ Not Needed"
                                     st.metric("Disambiguation", disambiguation_used)
                                 st.dataframe(result_df, use_container_width=True)
-                                if not result_df.empty: st.download_button("📥 Download Results", data=result_df.to_csv(index=False).encode('utf-8'), file_name=f"standard_results_with_disambiguation.csv", mime="text/csv")
-                            else: st.error(f"❌ Query execution failed: {exec_error}")
-                else: st.error(f"❌ Enhanced SQL Generation Error: {sql_error}")
+                                if not result_df.empty: 
+                                    st.download_button("📥 Download Results", data=result_df.to_csv(index=False).encode('utf-8'), file_name=f"standard_results_with_disambiguation.csv", mime="text/csv")
+                            else: 
+                                st.error(f"❌ Query execution failed: {exec_error}")
+                else: 
+                    st.error(f"❌ Enhanced SQL Generation Error: {sql_error}")
             except Exception as e:
                 st.error(f"❌ Enhanced analysis failed: {str(e)}")
                 st.info("💡 Try checking your table name, column name, database permissions, and field disambiguation.")
 
-        elif analyze_and_execute: st.warning("⚠️ Please fill in all required fields.")
+        elif analyze_and_execute: 
+            st.warning("⚠️ Please fill in all required fields.")
 
     # Connection management
     st.markdown("---")
@@ -769,10 +776,12 @@ LIMIT 10;""",
             try:
                 conn_manager.disconnect()
                 keys_to_clear = [k for k in st.session_state.keys() if 'unified_connection' in k or 'discovered_schema' in k]
-                for key in keys_to_clear: del st.session_state[key]
+                for key in keys_to_clear: 
+                    del st.session_state[key]
                 st.success("✅ Disconnected from Snowflake")
                 st.rerun()
-            except Exception as e: st.error(f"❌ Error disconnecting: {str(e)}")
+            except Exception as e: 
+                st.error(f"❌ Error disconnecting: {str(e)}")
     with col8:
         if st.button("🔍 Test Connection", type="secondary"):
             try:
@@ -784,26 +793,39 @@ LIMIT 10;""",
                         connectivity_ok = test_df is not None
                         status_msg = "Connection is healthy!" if connectivity_ok else f"Connection failed: {error}"
                     except Exception as e:
-                        connectivity_ok = False; status_msg = f"Connection test failed: {str(e)}"
-                if connectivity_ok: st.success("✅ Connection is healthy!")
-                else: st.error(status_msg)
-            except Exception as e: st.error(f"❌ Error testing connection: {str(e)}")
+                        connectivity_ok = False
+                        status_msg = f"Connection test failed: {str(e)}"
+                if connectivity_ok: 
+                    st.success("✅ Connection is healthy!")
+                else: 
+                    st.error(status_msg)
+            except Exception as e: 
+                st.error(f"❌ Error testing connection: {str(e)}")
     with col9:
         if st.button("🔄 Switch Mode", type="secondary", help="Disconnect and reconnect in different mode"):
             try:
                 conn_manager.disconnect()
                 keys_to_clear = [k for k in st.session_state.keys() if 'unified_connection' in k]
-                for key in keys_to_clear: del st.session_state[key]
+                for key in keys_to_clear: 
+                    del st.session_state[key]
                 st.info("✅ Disconnected. Please reconnect in your preferred mode.")
                 st.rerun()
-            except Exception as e: st.error(f"❌ Error switching mode: {str(e)}")
+            except Exception as e: 
+                st.error(f"❌ Error switching mode: {str(e)}")
+    
     if hasattr(conn_manager, 'is_connected') and conn_manager.is_connected:
         with st.expander("ℹ️ Enhanced Connection Details & Status"):
             col_info1, col_info2 = st.columns(2)
             with col_info1:
                 st.markdown("**Connection Information:**")
-                conn_info = {'Account': conn_manager.connection_params.get('account', 'N/A'), 'Database': conn_manager.connection_params.get('database', 'N/A'), 'Schema': conn_manager.connection_params.get('schema', 'N/A'), 'Warehouse': conn_manager.connection_params.get('warehouse', 'N/A')}
-                for key, value in conn_info.items(): st.text(f"{key}: {value}")
+                conn_info = {
+                    'Account': conn_manager.connection_params.get('account', 'N/A'), 
+                    'Database': conn_manager.connection_params.get('database', 'N/A'), 
+                    'Schema': conn_manager.connection_params.get('schema', 'N/A'), 
+                    'Warehouse': conn_manager.connection_params.get('warehouse', 'N/A')
+                }
+                for key, value in conn_info.items(): 
+                    st.text(f"{key}: {value}")
             with col_info2:
                 st.markdown("**Enhanced Feature Status:**")
                 enhanced_mode = hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode
@@ -812,6 +834,7 @@ LIMIT 10;""",
                 st.text(f"Modin Acceleration: {'🚀 Available' if MODIN_AVAILABLE else '📊 Not Available'}")
                 st.text(f"Performance Tracking: {'✅ Active' if enhanced_mode else '❌ Not Available'}")
                 st.text(f"Field Disambiguation: ✅ Active")
+
 
 def main():
     try:
@@ -878,7 +901,8 @@ def main():
                                 sql, warnings, disambiguation_details = generate_enhanced_sql_python_mode(json_data, table_name, json_column, field_conditions)
                                 if warnings:
                                     st.markdown("#### 🔔 Disambiguation Alerts")
-                                    for warning in warnings: st.warning(warning)
+                                    for warning in warnings: 
+                                        st.warning(warning)
                                 
                                 st.markdown("---")
                                 if execution_mode == "📝 Generate SQL Only":
@@ -892,33 +916,47 @@ def main():
                                     with st.expander("👀 Export Content Preview", expanded=True):
                                         st.code(export_content, language="sql" if "sql" in export_format_val.lower() else "python")
                                     st.download_button(f"📥 Download {export_format_val}", data=export_content, file_name=f"export.{get_file_extension(export_format_val)}", mime=get_mime_type(export_format_val))
-                                render_disambiguation_details(sql, warnings, disambiguation_details)
+                                render_disambiguation_details(sql, warnings, field_conditions, disambiguation_details)
                             except Exception as e:
                                 st.error(f"❌ SQL generation error: {str(e)}")
 
                 with st.expander("💡 Examples & Help", expanded=False):
                     if temp_schema:
-                    example_col1, example_col2 = st.columns(2)
-                    with example_col1:
-                        st.markdown("**🎯 Examples for your JSON:**")
-                        example_fields = []
-                        for path, details in temp_schema.items():
-                            if details.get('is_queryable', False):
-                                example_fields.append(path)
-                                if len(example_fields) >= 3: break
-                        if example_fields:
-                            st.code(f"# Basic field selection\n{', '.join(example_fields[:2])}", language="text")
-                            if len(example_fields) >= 2: st.code(f"# With conditions\n{example_fields[0]}[IS NOT NULL], {example_fields[1]}[=:some_value]", language="text")
-                            if disambiguation_info: st.markdown("**🚨 Disambiguation Examples:**"); conflict_field = list(disambiguation_info.keys())[0]; options = disambiguation_info[conflict_field]['paths'][:2]; st.code(f"# Ambiguous (auto-resolved)\n{conflict_field}", language="text"); st.code(f"# Explicit paths\n{', '.join([opt['full_path'] for opt in options])}", language="text")
-                    with example_col2:
-                        st.markdown("**📋 General Examples:**"); examples = ["name, age, email", "user.name, user.profile.age[>:18]", "status[=:active], created_date[IS NOT NULL]", "tags[IN:premium|gold], score[>:100]"];
-                        for ex in examples: st.code(ex, language="text")
-                else:
-                    st.markdown("**📋 Standard Examples:**"); example_cols = st.columns(2);
-                    with example_cols[0]: examples1 = ["name, age, email", "user.name, user.profile.age[>:18]"];
-                    for ex in examples1: st.code(ex, language="text")
-                    with example_cols[1]: examples2 = ["status[=:active], created_date[IS NOT NULL]", "tags[IN:premium|gold], score[>:100]"];
-                    for ex in examples2: st.code(ex, language="text")
+                        example_col1, example_col2 = st.columns(2)
+                        with example_col1:
+                            st.markdown("**🎯 Examples for your JSON:**")
+                            example_fields = []
+                            for path, details in temp_schema.items():
+                                if details.get('is_queryable', False):
+                                    example_fields.append(path)
+                                    if len(example_fields) >= 3: 
+                                        break
+                            if example_fields:
+                                st.code(f"# Basic field selection\n{', '.join(example_fields[:2])}", language="text")
+                                if len(example_fields) >= 2: 
+                                    st.code(f"# With conditions\n{example_fields[0]}[IS NOT NULL], {example_fields[1]}[=:some_value]", language="text")
+                                if disambiguation_info: 
+                                    st.markdown("**🚨 Disambiguation Examples:**")
+                                    conflict_field = list(disambiguation_info.keys())[0]
+                                    options = disambiguation_info[conflict_field]['paths'][:2]
+                                    st.code(f"# Ambiguous (auto-resolved)\n{conflict_field}", language="text")
+                                    st.code(f"# Explicit paths\n{', '.join([opt['full_path'] for opt in options])}", language="text")
+                        with example_col2:
+                            st.markdown("**📋 General Examples:**")
+                            examples = ["name, age, email", "user.name, user.profile.age[>:18]", "status[=:active], created_date[IS NOT NULL]", "tags[IN:premium|gold], score[>:100]"]
+                            for ex in examples: 
+                                st.code(ex, language="text")
+                    else:
+                        st.markdown("**📋 Standard Examples:**")
+                        example_cols = st.columns(2)
+                        with example_cols[0]: 
+                            examples1 = ["name, age, email", "user.name, user.profile.age[>:18]"]
+                            for ex in examples1: 
+                                st.code(ex, language="text")
+                        with example_cols[1]: 
+                            examples2 = ["status[=:active], created_date[IS NOT NULL]", "tags[IN:premium|gold], score[>:100]"]
+                            for ex in examples2: 
+                                st.code(ex, language="text")
             else:
                 st.info("👆 Provide JSON data via the sidebar to begin.")
 
@@ -926,17 +964,40 @@ def main():
             st.markdown('<h2 class="section-header">🏔️ Snowflake Database Connection</h2>', unsafe_allow_html=True)
             st.markdown("""<div class="feature-box"><p>Choose the connection mode that best fits your needs. You can switch between modes by disconnecting and reconnecting.</p></div>""", unsafe_allow_html=True)
             col_mode1, col_mode2 = st.columns(2)
-            with col_mode1: st.markdown("""**🏔️ Standard Mode:**\n- ✅ Basic connectivity\n- 📊 Standard pandas processing\n- 🔧 Simple error handling\n- 💾 Good for small to medium datasets""")
-            with col_mode2: st.markdown("""**⚡ Enhanced Mode:**\n- 🛡️ **Fixed session context management**\n- 🚀 **Modin acceleration**\n- 📊 **Real-time performance tracking**\n- 🏷️ Smart table name resolution""")
+            with col_mode1: 
+                st.markdown("""**🏔️ Standard Mode:**\n- ✅ Basic connectivity\n- 📊 Standard pandas processing\n- 🔧 Simple error handling\n- 💾 Good for small to medium datasets""")
+            with col_mode2: 
+                st.markdown("""**⚡ Enhanced Mode:**\n- 🛡️ **Fixed session context management**\n- 🚀 **Modin acceleration**\n- 📊 **Real-time performance tracking**\n- 🏷️ Smart table name resolution""")
             connection_mode = st.radio("Select Connection Mode:", ["🏔️ Standard Mode", "⚡ Enhanced Mode"], index=1, horizontal=True, help="Enhanced mode includes all standard features plus advanced capabilities")
             enhanced_mode = "Enhanced" in connection_mode
-            st.markdown("---"); st.subheader("🔐 Database Connection"); conn_manager = render_unified_connection_ui(enhanced_mode=enhanced_mode)
+            st.markdown("---")
+            st.subheader("🔐 Database Connection")
+            if render_unified_connection_ui:
+                conn_manager = render_unified_connection_ui(enhanced_mode=enhanced_mode)
+            else:
+                st.error("❌ Connection UI not available")
+                conn_manager = None
+            
             if conn_manager and conn_manager.is_connected:
-                connectivity_ok, status_msg = test_database_connectivity(conn_manager)
+                if test_database_connectivity:
+                    connectivity_ok, status_msg = test_database_connectivity(conn_manager)
+                else:
+                    connectivity_ok = True
+                    status_msg = "Connection appears active"
+                
                 if connectivity_ok:
-                    st.success(status_msg); st.markdown("---"); st.subheader("📊 Database Operations"); render_database_operations_ui(conn_manager)
-                else: st.error(status_msg); st.info("💡 Try disconnecting and reconnecting with correct database/schema settings.");
-            else: st.markdown("---"); mode_text = "Enhanced" if enhanced_mode else "Standard"; st.info(f"👆 **Connect using {mode_text} mode above to unlock database operations.**")
+                    st.success(status_msg)
+                    st.markdown("---")
+                    st.subheader("📊 Database Operations")
+                    render_database_operations_ui(conn_manager)
+                else: 
+                    st.error(status_msg)
+                    st.info("💡 Try disconnecting and reconnecting with correct database/schema settings.")
+            else: 
+                st.markdown("---")
+                mode_text = "Enhanced" if enhanced_mode else "Standard"
+                st.info(f"👆 **Connect using {mode_text} mode above to unlock database operations.**")
+        
         st.markdown("""
         <div class="footer">
             <p><strong>🚀 Enhanced JSON-to-SQL Analyzer</strong> | Built with ❤️ using Streamlit</p>
@@ -957,6 +1018,7 @@ def main():
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
         st.error(f"❌ Application Error: {str(e)}")
+
 
 if __name__ == "__main__":
     main()
