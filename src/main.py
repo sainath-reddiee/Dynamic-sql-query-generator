@@ -68,13 +68,10 @@ logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="JSON-to-SQL Analyzer & Generator 🚀",
-    page_icon="🧠",
+    page_icon="❄️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-st.title("Welcome to the JSON-to-SQL Analyzer & Generator")
-
 
 # Custom CSS for better styling
 st.markdown("""
