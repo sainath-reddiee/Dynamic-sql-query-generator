@@ -1013,7 +1013,7 @@ def main():
         # Force fresh content rendering
         st.empty()  # Clear any cached content
         
-        st.markdown('<h1 class="main-header">❄️ Enhanced JSON-to-SQL Analyzer for Snowflake</h1>', unsafe_allow_html=True)
+        st.markdown('<h1 class="main-header">❄️ Dynamic JSON-to-SQL Analyzer & Genrator for Snowflake</h1>', unsafe_allow_html=True)
         json_data = get_json_data_from_sidebar()
         if render_performance_info:
             render_performance_info()
