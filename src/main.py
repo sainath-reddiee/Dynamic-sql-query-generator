@@ -7,14 +7,12 @@ import logging
 import os
 import random
 
-# Import all required modules from the 'src' directory
 try:
     from python_sql_generator import generate_sql_from_json_data
 except ImportError:
     st.error("❌ Missing python_sql_generator module")
     st.stop()
 
-# UNIFIED: Import the new unified connector instead of both separate ones
 try:
     from unified_snowflake_connector import (
         UnifiedSnowflakeConnector,
@@ -62,15 +60,12 @@ try:
     from config import config
 except ImportError as e:
     st.warning(f"⚠️ Some utility modules not available: {e}")
-    # Create fallback config
     class Config:
         APP_NAME = "JSON-to-SQL Analyzer"
     config = Config()
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
-# Page configuration
 st.set_page_config(
     page_title=f"❄️ {getattr(config, 'APP_NAME', 'JSON-to-SQL Analyzer')}",
     page_icon="🔍",
@@ -158,7 +153,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def get_json_data_from_sidebar() -> Optional[Dict]:
-    """Handle JSON input from sidebar with error handling and prettify feature"""
     st.sidebar.markdown("## 📁 JSON Data Input")
     
     input_method = st.sidebar.radio(
@@ -231,7 +225,6 @@ def get_json_data_from_sidebar() -> Optional[Dict]:
     return json_data
 
 def safe_get_session_state(key: str, default: Any = None) -> Any:
-    """Safely get value from session state with default"""
     try:
         return st.session_state.get(key, default)
     except Exception:
@@ -241,7 +234,6 @@ def safe_get_session_state(key: str, default: Any = None) -> Any:
 def parse_field_conditions_enhanced(field_conditions: str) -> List[str]:
     if not field_conditions or not field_conditions.strip():
         return []
-    
     try:
         st.info(f"🔍 **Debug: Parsing input:** `{field_conditions}`")
         raw_fields = [f.strip() for f in field_conditions.split(',') if f.strip()]
@@ -251,7 +243,6 @@ def parse_field_conditions_enhanced(field_conditions: str) -> List[str]:
             if field:  # Only add non-empty fields
                 parsed_fields.append(field)
                 st.info(f"✅ **Field {i+1}:** `{field}`")
-        
         st.success(f"🎯 **Total fields parsed: {len(parsed_fields)}** - {parsed_fields}")
         
         return parsed_fields
@@ -272,7 +263,6 @@ def count_expected_columns_from_conditions(field_conditions: str, temp_schema: D
             field_name = field.split('[')[0].strip()  # Remove conditions like [IS NOT NULL]
             simple_name = field_name.split('.')[-1]  # Get simple field name
             
-            # Check if this field has disambiguation (multiple locations)
             if disambiguation_info and simple_name in disambiguation_info:
                 field_data = disambiguation_info[simple_name]
                 field_count = len(field_data['paths'])
@@ -595,7 +585,6 @@ def render_smart_json_analysis_ui(conn_manager):
 
 
 def render_snowflake_field_suggestions():
-    """Render field suggestions for Snowflake mode"""
     with st.expander("💡 Smart Field Suggestions (Database-Aware)", expanded=False):
         try:
             schema = st.session_state.discovered_schema_sf
@@ -644,7 +633,6 @@ def render_snowflake_field_suggestions():
 
 
 def execute_snowflake_analysis(conn_manager, table_name, json_column, field_conditions, sample_size, execution_mode, show_preview):
-    """Execute the Snowflake analysis based on the chosen mode"""
     try:
         if execution_mode == "🔍 Analyze Schema Only":
             with st.spinner(f"🔄 Database schema analysis with field disambiguation..."):
@@ -658,7 +646,6 @@ def execute_snowflake_analysis(conn_manager, table_name, json_column, field_cond
                 if schema:
                     st.success(f"✅ Database schema analysis complete! Found {len(schema)} fields.")
 
-                    # Store in session state for suggestions
                     st.session_state.discovered_schema_sf = schema
                     st.session_state.schema_metadata_sf = metadata
 
@@ -794,7 +781,6 @@ def execute_snowflake_analysis(conn_manager, table_name, json_column, field_cond
 
 
 def render_custom_sql_execution_ui(conn_manager):
-    """Custom SQL execution UI"""
     st.markdown("### 📊 Custom SQL Execution")
     st.markdown("""
     <div class="feature-box">
