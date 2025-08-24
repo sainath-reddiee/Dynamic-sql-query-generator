@@ -1147,7 +1147,7 @@ def main():
                 st.info("👆 Provide JSON data via the sidebar to begin.")
 
         with main_tab2:
-            st.markdown('<h2 class="section-header">🏔️ Snowflake Database Connection</h2>', unsafe_allow_html=True)
+            st.markdown('<h2 class="section-header">❄️  Snowflake Database Connection</h2>', unsafe_allow_html=True)
             st.markdown("""<div class="feature-box"><p>Choose the connection mode that best fits your needs. Enhanced Snowflake UI now matches Python mode experience!</p></div>""", unsafe_allow_html=True)
             
             # Force fresh rendering of mode descriptions
