@@ -1199,19 +1199,28 @@ def main():
                 st.info(f"👆 **Connect using {mode_text} mode above to unlock enhanced database operations.**")
         
         st.markdown("""
-        <div class="footer">
-            <p><strong>🚀 Dynamic JSON-to-SQL Analyzer & Generator</strong> | Built with ❤️ using Streamlit</p>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin-top: 1rem; text-align: center;">
-                <div><h4 style="color: #1976d2;">🐍 Python Mode</h4><p>Instant SQL generation<br/>Enhanced field parsing<br/>Debug multi-field support</p></div>
-                <div><h4 style="color: #9c27b0;">🚀 Key Features</h4><p>Fixed multi-field parsing<br/>Smart field disambiguation<br/>Enhanced debugging tools</p></div>
+    <div class="footer" style="max-width: 900px; margin: auto; padding: 2rem;">
+        <p style="text-align: center;">
+            <strong>🚀 Dynamic JSON-to-SQL Analyzer & Generator</strong> | Built with ❤️ using Streamlit
+        </p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin-top: 1rem;">
+            <div style="text-align: left;">
+                <h4 style="color: #1976d2;">🐍 Python Mode</h4>
+                <p>Instant SQL generation<br/>Enhanced field parsing<br/>Debug multi-field support</p>
             </div>
-            <hr style="margin: 2rem 0; border: 1px solid #e9ecef;">
-            <p><small>
-                <strong>⚡ Enhanced UI:</strong> Snowflake mode now matches Python mode experience<br/>
-                <strong>📋 Debug Tools:</strong> Field parsing analysis and column count verification
-            </small></p>
+            <div style="text-align: left;">
+                <h4 style="color: #9c27b0;">🚀 Key Features</h4>
+                <p>Fixed multi-field parsing<br/>Smart field disambiguation<br/>Enhanced debugging tools</p>
+            </div>
         </div>
-        """, unsafe_allow_html=True)
+        <hr style="margin: 2rem 0; border: 1px solid #e9ecef;">
+        <p style="font-size: 0.9rem; text-align: center;">
+            <strong>⚡ Enhanced UI:</strong> Snowflake mode now matches Python mode experience<br/>
+            <strong>📋 Debug Tools:</strong> Field parsing analysis and column count verification
+        </p>
+    </div>
+""", unsafe_allow_html=True)
+
 
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
