@@ -1203,7 +1203,6 @@ def main():
             <p><strong>🚀 Enhanced JSON-to-SQL Analyzer</strong> | Built with ❤️ using Streamlit</p>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin-top: 1rem; text-align: center;">
                 <div><h4 style="color: #1976d2;">🐍 Python Mode</h4><p>Instant SQL generation<br/>Enhanced field parsing<br/>Debug multi-field support</p></div>
-                <div><h4 style="color: #2e7d32;">🏔️ Database Mode</h4><p>Live Snowflake connectivity<br/>Enhanced UI matching Python<br/>Real database operations</p></div>
                 <div><h4 style="color: #9c27b0;">🚀 Key Features</h4><p>Fixed multi-field parsing<br/>Smart field disambiguation<br/>Enhanced debugging tools</p></div>
             </div>
             <hr style="margin: 2rem 0; border: 1px solid #e9ecef;">
