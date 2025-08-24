@@ -61,13 +61,13 @@ try:
 except ImportError as e:
     st.warning(f"⚠️ Some utility modules not available: {e}")
     class Config:
-        APP_NAME = "JSON-to-SQL Analyzer"
+        APP_NAME = "JSON-to-SQL Analyzer & Generator"
     config = Config()
 
 logger = logging.getLogger(__name__)
 
 st.set_page_config(
-    page_title=f"❄️ {getattr(config, 'APP_NAME', 'JSON-to-SQL Analyzer')}",
+    page_title=f"❄️ {getattr(config, 'APP_NAME', 'JSON-to-SQL Analyzer & Generator')}",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded"
