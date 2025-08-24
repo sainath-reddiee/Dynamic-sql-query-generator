@@ -1000,6 +1000,19 @@ def render_connection_management_ui(conn_manager):
 
 def main():
     try:
+        # Add cache clearing functionality at the top
+        if st.sidebar.button("🔄 Clear Cache & Refresh", help="Clear all caches and restart the app"):
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            # Clear all session state
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.sidebar.success("✅ Cache cleared! Refreshing...")
+            st.rerun()
+        
+        # Force fresh content rendering
+        st.empty()  # Clear any cached content
+        
         st.markdown('<h1 class="main-header">❄️ Enhanced JSON-to-SQL Analyzer for Snowflake</h1>', unsafe_allow_html=True)
         json_data = get_json_data_from_sidebar()
         if render_performance_info:
@@ -1137,11 +1150,21 @@ def main():
             st.markdown('<h2 class="section-header">🏔️ Snowflake Database Connection</h2>', unsafe_allow_html=True)
             st.markdown("""<div class="feature-box"><p>Choose the connection mode that best fits your needs. Enhanced Snowflake UI now matches Python mode experience!</p></div>""", unsafe_allow_html=True)
             
+            # Force fresh rendering of mode descriptions
             col_mode1, col_mode2 = st.columns(2)
             with col_mode1: 
-                st.markdown("""**🏔️ Standard Mode:**\n- ✅ Basic connectivity\n- 📊 Standard pandas processing\n- 🔧 Simple error handling\n- 💾 Good for small to medium datasets""")
+                # Clear any cached content and render fresh
+                st.markdown("""**🏔️ Standard Mode:**
+- ✅ Basic connectivity
+- 📊 Standard pandas processing
+- 🔧 Simple error handling
+- 💾 Good for small to medium datasets""")
             with col_mode2: 
-                st.markdown("""**⚡ Enhanced Mode:**\n- 🛡️ **Fixed session context management**\n- 🚀 **Modin acceleration**\n- 📊 **Real-time performance tracking**\n- 🏷️ Smart table name resolution""")
+                st.markdown("""**⚡ Enhanced Mode:**
+- 🛡️ **Fixed session context management**
+- 🚀 **Modin acceleration**
+- 📊 **Real-time performance tracking**
+- 🏷️ Smart table name resolution""")
             
             connection_mode = st.radio("Select Connection Mode:", ["🏔️ Standard Mode", "⚡ Enhanced Mode"], index=1, horizontal=True, help="Enhanced mode includes all standard features plus advanced capabilities")
             enhanced_mode = "Enhanced" in connection_mode
@@ -1149,6 +1172,7 @@ def main():
             st.markdown("---")
             st.subheader("🔐 Database Connection")
             if render_unified_connection_ui:
+                # Force fresh connection UI rendering
                 conn_manager = render_unified_connection_ui(enhanced_mode=enhanced_mode)
             else:
                 st.error("❌ Connection UI not available")
@@ -1193,6 +1217,8 @@ def main():
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
         st.error(f"❌ Application Error: {str(e)}")
+        # Show debug info
+        st.error("🔍 **Debug Info:** If you see cached content, click 'Clear Cache & Refresh' in the sidebar")
 
 
 if __name__ == "__main__":
