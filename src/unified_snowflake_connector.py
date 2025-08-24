@@ -416,18 +416,15 @@ def render_unified_connection_ui(enhanced_mode: bool = True, key_prefix: str = "
     mode_description = "Enhanced Mode (🛡️ Session management + 🚀 Performance)" if enhanced_mode else "Standard Mode (Basic connectivity)"
     
     st.markdown(f"""
-<div style="background: linear-gradient(145deg, {'#e8f5e8' if enhanced_mode else '#e3f2fd'}, #f8f9fa); padding: 1.5rem; border-radius: 10px; border: 2px solid {'#81c784' if enhanced_mode else '#90caf9'}; margin-bottom: 1rem;">
-    <h4 style="color: {'#2e7d32' if enhanced_mode else '#1976d2'}; margin-bottom: 1rem;">🔗 Snowflake Connection - {mode_description}</h4>
-    <p style="margin-bottom: 0.5rem;"><strong>Features:</strong></p>
-    <ul style="margin-bottom: 0;">
-        <li>📊 Execute SQL directly on your data</li>
-        <li>🏔️ Use your existing stored procedures</li>
-        <li>💾 Store and query JSON data</li>
-        {f'<li>🛡️ <strong>Enhanced session context management</strong></li>' if enhanced_mode else ''}
-        {f'<li>🚀 <strong>Modin performance acceleration</strong></li>' if enhanced_mode and MODIN_AVAILABLE else ''}
-    </ul>
-</div>
-""", unsafe_allow_html=True)
+### 🔗 Snowflake Connection - {mode_description}
+
+**Features:**
+- 📊 Execute SQL directly on your data
+- 🏔️ Use your existing stored procedures  
+- 💾 Store and query JSON data
+{f'- 🛡️ **Enhanced session context management**' if enhanced_mode else ''}
+{f'- 🚀 **Modin performance acceleration**' if enhanced_mode and MODIN_AVAILABLE else ''}
+""")
 
     # Connection form
     with st.form(f"{key_prefix}_unified_connection_form", clear_on_submit=False):
