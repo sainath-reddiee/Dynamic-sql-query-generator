@@ -1200,7 +1200,7 @@ def main():
         
         st.markdown("""
         <div class="footer">
-            <p><strong>🚀 Enhanced JSON-to-SQL Analyzer</strong> | Built with ❤️ using Streamlit</p>
+            <p><strong>🚀 Dynamic JSON-to-SQL Analyzer & Generator</strong> | Built with ❤️ using Streamlit</p>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin-top: 1rem; text-align: center;">
                 <div><h4 style="color: #1976d2;">🐍 Python Mode</h4><p>Instant SQL generation<br/>Enhanced field parsing<br/>Debug multi-field support</p></div>
                 <div><h4 style="color: #9c27b0;">🚀 Key Features</h4><p>Fixed multi-field parsing<br/>Smart field disambiguation<br/>Enhanced debugging tools</p></div>
