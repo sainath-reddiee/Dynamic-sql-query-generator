@@ -299,34 +299,252 @@ def generate_export_content(sql, export_format, table_name, field_conditions=Non
 """
     
     elif export_format == "dbt Model":
-        model_name = table_name.split('.')[-1].lower().replace('-', '_')
-        return f"""{{{{
+        # Extract table parts for proper dbt structure
+        table_parts = table_name.split('.')
+        if len(table_parts) >= 3:
+            database_name = table_parts[0]
+            schema_name = table_parts[1] 
+            table_name_only = table_parts[2]
+        elif len(table_parts) == 2:
+            database_name = "your_database"  # Default placeholder
+            schema_name = table_parts[0]
+            table_name_only = table_parts[1]
+        else:
+            database_name = "your_database"
+            schema_name = "your_schema"
+            table_name_only = table_parts[0]
+        
+        model_name = table_name_only.lower().replace('-', '_').replace(' ', '_')
+        source_name = f"{schema_name.lower()}_tables"
+        
+        # Convert raw SQL to use dbt source() function
+        dbt_sql = sql.replace(f"FROM {table_name}", f"FROM {{{{ source('{source_name}', '{table_name_only}') }}}}")
+        if table_name not in dbt_sql:  # If full table name wasn't found, try just table name
+            dbt_sql = dbt_sql.replace(f"FROM {table_name_only}", f"FROM {{{{ source('{source_name}', '{table_name_only}') }}}}")
+        
+        # Generate the complete dbt model with YAML
+        model_sql = f"""{{{{
   config(
     materialized='view',
-    description='JSON analysis model for {table_name}'
+    description='JSON analysis model for {table_name}',
+    tags=['json_analysis', 'generated']
   )
 }}}}
 
--- Generated dbt model for {table_name}
--- Fields: {field_conditions or 'N/A'}
+-- dbt model: {model_name}
+-- Generated from JSON analysis
+-- Source table: {table_name}
+-- Fields analyzed: {field_conditions or 'N/A'}
 -- Generated: {timestamp}
 
-{sql}
+{dbt_sql}
 """
+        
+        # Generate accompanying schema.yml
+        schema_yml = f"""# schema.yml - Add this to your dbt project
+version: 2
+
+sources:
+  - name: {source_name}
+    description: "Source tables from {schema_name} schema"
+    database: {database_name}
+    schema: {schema_name}
+    tables:
+      - name: {table_name_only}
+        description: "JSON data table for analysis"
+        columns:
+          - name: json_data
+            description: "JSON column containing structured data"
+            tests:
+              - not_null
+
+models:
+  - name: {model_name}
+    description: "Analyzed JSON fields from {table_name}"
+    columns:"""
+        
+        # Add column documentation based on field conditions
+        if field_conditions:
+            fields = [f.strip().split('[')[0] for f in field_conditions.split(',') if f.strip()]
+            for field in fields[:10]:  # Limit to avoid too long YAML
+                clean_field = field.replace('.', '_').lower()
+                schema_yml += f"""
+      - name: {clean_field}
+        description: "Extracted from JSON path: {field}" """
+        
+        # Combine model and schema YAML
+        complete_dbt_export = f"""-- ==============================================
+-- dbt MODEL FILE: models/{model_name}.sql
+-- ==============================================
+
+{model_sql}
+
+-- ==============================================
+-- SCHEMA CONFIG: Add to your schema.yml file
+-- ==============================================
+
+{schema_yml}
+
+-- ==============================================
+-- INSTALLATION INSTRUCTIONS
+-- ==============================================
+
+-- 1. Save the model SQL above as 'models/{model_name}.sql'
+-- 2. Add the schema YAML configuration to your schema.yml file
+-- 3. Run: dbt run --models {model_name}
+-- 4. Test: dbt test --models {model_name}
+
+-- OPTIONAL: Create staging model first
+-- models/staging/stg_{model_name}.sql:
+--
+-- {{ {{ config(materialized='view') }} }}
+--
+-- SELECT * FROM {{ {{ source('{source_name}', '{table_name_only}') }} }}
+-- WHERE json_data IS NOT NULL
+"""
+        
+        return complete_dbt_export
     
     elif export_format == "Jupyter Notebook":
-        notebook_content = { "cells": [ ], "metadata": { } }
+        # Enhanced Jupyter notebook with proper structure
+        notebook_content = {
+            "cells": [
+                {
+                    "cell_type": "markdown",
+                    "metadata": {},
+                    "source": [
+                        f"# JSON-to-SQL Analysis Notebook\n",
+                        f"**Generated:** {timestamp}\n",
+                        f"**Table:** {table_name}\n",
+                        f"**Fields:** {field_conditions or 'N/A'}\n\n",
+                        "This notebook contains the generated SQL query for analyzing JSON data."
+                    ]
+                },
+                {
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "metadata": {},
+                    "outputs": [],
+                    "source": [
+                        "# Import required libraries\n",
+                        "import pandas as pd\n",
+                        "import snowflake.connector\n",
+                        "from sqlalchemy import create_engine\n",
+                        "\n",
+                        "# Snowflake connection parameters\n",
+                        "connection_params = {\n",
+                        "    'account': 'your_account',\n",
+                        "    'user': 'your_username',\n",
+                        "    'password': 'your_password',\n",
+                        "    'database': 'your_database',\n",
+                        "    'schema': 'your_schema',\n",
+                        "    'warehouse': 'your_warehouse'\n",
+                        "}"
+                    ]
+                },
+                {
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "metadata": {},
+                    "outputs": [],
+                    "source": [
+                        f"# Generated SQL Query\n",
+                        f"sql_query = '''\n{sql}\n'''\n\n",
+                        "print('Generated SQL Query:')\n",
+                        "print(sql_query)"
+                    ]
+                },
+                {
+                    "cell_type": "code",
+                    "execution_count": None,
+                    "metadata": {},
+                    "outputs": [],
+                    "source": [
+                        "# Execute query and get results\n",
+                        "# conn = snowflake.connector.connect(**connection_params)\n",
+                        "# df = pd.read_sql(sql_query, conn)\n",
+                        "# print(f'Results shape: {df.shape}')\n",
+                        "# df.head()"
+                    ]
+                }
+            ],
+            "metadata": {
+                "kernelspec": {
+                    "display_name": "Python 3",
+                    "language": "python",
+                    "name": "python3"
+                },
+                "language_info": {
+                    "name": "python",
+                    "version": "3.8.0"
+                }
+            },
+            "nbformat": 4,
+            "nbformat_minor": 4
+        }
         return json.dumps(notebook_content, indent=2)
 
     elif export_format == "PowerBI Template":
         return f"""# Power BI Data Source Template
 # Generated: {timestamp}
+# Table: {table_name}
+# Fields: {field_conditions or 'N/A'}
+
+# 1. SNOWFLAKE CONNECTION SETUP
+# ================================
+# In Power BI Desktop:
+# 1. Go to "Get Data" > "More..." 
+# 2. Search for and select "Snowflake"
+# 3. Enter your Snowflake account details
+
+# Connection String Format:
+# Server: your-account.snowflakecomputing.com
+# Database: {table_parts[0] if '.' in table_name else 'your_database'}
+# Warehouse: your_warehouse
+
+# 2. CUSTOM SQL QUERY
+# ===================
+# Use this SQL in Power BI's "Advanced Options" > "SQL Statement":
+
+{sql}
+
+# 3. POWER BI SETUP STEPS
+# ========================
+# After importing the data:
+# 1. Check data types in Power Query Editor
+# 2. Rename columns if needed for better visualization
+# 3. Create relationships if combining with other tables
+# 4. Build your visualizations
+
+# 4. RECOMMENDED VISUALIZATIONS
+# =============================
+# Based on your field selection:
+{f'# Fields: {field_conditions}' if field_conditions else '# Fields: Various JSON fields'}
+# 
+# Suggested chart types:
+# - Table/Matrix for detailed view
+# - Cards for key metrics
+# - Bar charts for categorical data
+# - Line charts for time series (if date fields present)
+
+# 5. REFRESH CONFIGURATION
+# =========================
+# To enable automatic refresh:
+# 1. Configure Snowflake gateway connection
+# 2. Set up scheduled refresh in Power BI Service
+# 3. Ensure proper credentials are stored securely
 """
     else:
         return f"# Unknown export format: {export_format}\n{sql}"
 
 def get_file_extension(export_format):
-    extensions = { "SQL File": "sql", "Python Script": "py", "dbt Model": "sql", "Jupyter Notebook": "ipynb", "PowerBI Template": "txt" }
+    extensions = {
+        "SQL File": "sql", 
+        "Python Script": "py", 
+        "dbt Model": "sql",  # Will be a complete dbt package
+        "Jupyter Notebook": "ipynb", 
+        "PowerBI Template": "txt"
+    }
     return extensions.get(export_format, "txt")
 
 
