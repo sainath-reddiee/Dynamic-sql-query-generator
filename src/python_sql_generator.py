@@ -314,29 +314,30 @@ class PythonSQLGenerator:
             return resolved_fields, warnings
         
         # Try exact field name matching only (not substring matching)
-    matching_paths = []
-    for path, details in schema.items():
-        if details['is_queryable']:
-            # Extract the actual field name from the full path
-            actual_field_name = path.split('.')[-1]
+        # CORRECTED INDENTATION STARTS HERE
+        matching_paths = []
+        for path, details in schema.items():
+            if details['is_queryable']:
+                # Extract the actual field name from the full path
+                actual_field_name = path.split('.')[-1]
+                
+                # Only match if the field name is EXACTLY the same
+                if actual_field_name == field_input:
+                    matching_paths.append({
+                        'full_path': path,
+                        'alias': details['context_description'],
+                        'schema_entry': details,
+                        'is_multi_level': False
+                    })
+                # Also allow exact path matching for full path specifications
+                elif path == field_input:
+                    matching_paths.append({
+                        'full_path': path,
+                        'alias': details['context_description'],
+                        'schema_entry': details,
+                        'is_multi_level': False
+                    })
             
-            # Only match if the field name is EXACTLY the same
-            if actual_field_name == field_input:
-                matching_paths.append({
-                    'full_path': path,
-                    'alias': details['context_description'],
-                    'schema_entry': details,
-                    'is_multi_level': False
-                })
-            # Also allow exact path matching for full path specifications
-            elif path == field_input:
-                matching_paths.append({
-                    'full_path': path,
-                    'alias': details['context_description'],
-                    'schema_entry': details,
-                    'is_multi_level': False
-                })
-        
         if matching_paths:
             if len(matching_paths) == 1:
                 warnings.append(f"ℹ️ Matched '{field_input}' → '{matching_paths[0]['full_path']}'")
