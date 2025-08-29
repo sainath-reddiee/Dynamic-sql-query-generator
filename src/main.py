@@ -690,6 +690,16 @@ def render_smart_json_analysis_ui(conn_manager):
             key="sf_execution_mode",
             help="Choose how to handle the database analysis"
         )
+        
+        # Show export format selection when Export is chosen
+        export_format = None
+        if execution_mode == "📋 Export Generated SQL":
+            export_format = st.selectbox(
+                "Export Format:", 
+                ["SQL File", "dbt Model", "Jupyter Notebook"], 
+                key="sf_export_format_selection",
+                help="Choose the format for exporting your generated SQL"
+            )
 
     # Field parsing debug for Snowflake mode
     if field_conditions:
@@ -743,6 +753,8 @@ def render_smart_json_analysis_ui(conn_manager):
         if not all([table_name, json_column, field_conditions]):
             st.error("❌ Please fill in all required fields marked with *.")
         else:
+            # Get export format if in export mode
+            export_format = st.session_state.get('sf_export_format_selection') if execution_mode == "📋 Export Generated SQL" else None
             execute_snowflake_analysis(conn_manager, table_name, json_column, field_conditions, sample_size, execution_mode, show_preview)
 
 
@@ -843,12 +855,12 @@ def execute_snowflake_analysis(conn_manager, table_name, json_column, field_cond
                     generated_sql, sql_error = None, "Function not available"
 
                 if generated_sql and not sql_error:
-                    st.success("✅ Database SQL Generated Successfully with Disambiguation Support!")
+                    st.success("✅ Database SQL Generated Successfully!")
                     st.code(generated_sql, language="sql")
 
                     # Count SELECT clauses in generated SQL for debugging
                     select_count = generated_sql.count("json_data:$") + generated_sql.count("value:")
-                    st.info(f"🔍 **Debug: Generated SQL has {select_count} field extractions**")
+                    st.info(f"🔍 Generated SQL has {select_count} field extractions")
 
                     # Execute the generated SQL
                     if hasattr(conn_manager, 'enhanced_mode') and conn_manager.enhanced_mode:
@@ -860,7 +872,7 @@ def execute_snowflake_analysis(conn_manager, table_name, json_column, field_cond
                                 perf_stats = {}
 
                             if result_df is not None:
-                                st.success("✅ Database query executed with enhanced performance monitoring!")
+                                st.success("✅ Query executed with performance monitoring!")
                                 if perf_stats and render_performance_metrics:
                                     render_performance_metrics(perf_stats)
 
@@ -883,17 +895,15 @@ def execute_snowflake_analysis(conn_manager, table_name, json_column, field_cond
                                 if not result_df.empty:
                                     csv_data = result_df.to_csv(index=False).encode('utf-8')
                                     filename = f"database_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                                    st.download_button("📥 Download Database Results", data=csv_data, file_name=filename, mime="text/csv")
-
-                                st.info(f"⚡ **Database Performance Summary:** Processed {len(result_df):,} rows in {perf_stats.get('total_time', 0):.2f}s using {processing_engine}")
+                                    st.download_button("📥 Download Results", data=csv_data, file_name=filename, mime="text/csv")
                             else:
-                                st.error(f"❌ Database query execution failed: {exec_error}")
+                                st.error(f"❌ Query execution failed: {exec_error}")
                     else:
                         # Standard mode execution
-                        with st.spinner("🔄 Executing database query in standard mode..."):
+                        with st.spinner("🔄 Executing database query..."):
                             result_df, exec_error = conn_manager.execute_query(generated_sql)
                             if result_df is not None:
-                                st.success("✅ Database query executed successfully!")
+                                st.success("✅ Query executed successfully!")
                                 
                                 col_sum1, col_sum2, col_sum3 = st.columns(3)
                                 with col_sum1: 
@@ -909,9 +919,9 @@ def execute_snowflake_analysis(conn_manager, table_name, json_column, field_cond
                                 if not result_df.empty: 
                                     st.download_button("📥 Download Results", data=result_df.to_csv(index=False).encode('utf-8'), file_name=f"database_results.csv", mime="text/csv")
                             else: 
-                                st.error(f"❌ Database query execution failed: {exec_error}")
+                                st.error(f"❌ Execution failed: {exec_error}")
                 else: 
-                    st.error(f"❌ Database SQL Generation Error: {sql_error}")
+                    st.error(f"❌ SQL Generation Error: {sql_error}")
 
         elif execution_mode == "📋 Export Generated SQL":
             with st.spinner("📋 Generating SQL for export..."):
@@ -923,49 +933,54 @@ def execute_snowflake_analysis(conn_manager, table_name, json_column, field_cond
                     generated_sql, sql_error = None, "Function not available"
 
                 if generated_sql and not sql_error:
-                    st.success("✅ Database SQL Generated for Export!")
+                    st.success("✅ SQL Generated for Export!")
                     
-                    # Export format selection - Use unique key to prevent conflicts
-                    export_format = st.selectbox(
-                        "Choose Export Format:", 
-                        ["SQL File", "dbt Model", "Jupyter Notebook"], 
-                        key=f"sf_export_format_{hash(generated_sql) % 1000}"  # Unique key to prevent conflicts
+                    # Get export format from session state (set in UI above)
+                    export_format = st.session_state.get('sf_export_format_selection', 'SQL File')
+                    
+                    # Generate export content
+                    export_content = generate_export_content(generated_sql, export_format, table_name, field_conditions)
+                    
+                    # Show success message based on format
+                    if export_format == "dbt Model":
+                        st.success("📋 Complete dbt Model Package Generated!")
+                        st.info("🎯 **Includes:** Model SQL + Schema YAML + Setup Instructions")
+                        
+                        # Parse model name for filename
+                        model_name = table_name.split('.')[-1].lower().replace('-', '_').replace(' ', '_')
+                        filename = f"dbt_model_{model_name}.sql"
+                        
+                        # Show dbt-specific setup instructions
+                        with st.expander("📋 dbt Setup Instructions", expanded=False):
+                            st.markdown(f"""
+                            ### 🚀 dbt Model Setup:
+                            1. **Save Model:** `models/{model_name}.sql`
+                            2. **Update Schema:** Add configuration to `schema.yml`
+                            3. **Run Model:** `dbt run --models {model_name}`
+                            4. **Test Model:** `dbt test --models {model_name}`
+                            """)
+                    else:
+                        st.success(f"📋 {export_format} Generated Successfully!")
+                        filename = f"snowflake_export.{get_file_extension(export_format)}"
+                    
+                    # Show preview
+                    with st.expander("👀 Export Content Preview", expanded=True):
+                        st.code(export_content, language="sql" if "sql" in export_format.lower() else "python")
+                    
+                    # Download button
+                    st.download_button(
+                        f"📥 Download {export_format}", 
+                        data=export_content, 
+                        file_name=filename, 
+                        mime=get_mime_type(export_format),
+                        type="primary"
                     )
-                    
-                    # Add export button to prevent auto-generation
-                    if st.button("🚀 Generate Export File", type="primary", key=f"sf_generate_export_{hash(generated_sql) % 1000}"):
-                        export_content = generate_export_content(generated_sql, export_format, table_name, field_conditions)
-                        
-                        if export_format == "dbt Model":
-                            st.success("📋 Complete dbt Model Package generated!")
-                            st.info("🎯 **This includes:** Model SQL + Schema YAML + Installation instructions")
-                        else:
-                            st.success(f"📋 {export_format} generated successfully!")
-                        
-                        with st.expander("👀 Export Content Preview", expanded=True):
-                            st.code(export_content, language="sql" if "sql" in export_format.lower() else "python")
-                        
-                        # Generate download filename
-                        if export_format == "dbt Model":
-                            model_name = table_name.split('.')[-1].lower().replace('-', '_').replace(' ', '_')
-                            filename = f"dbt_model_{model_name}.sql"
-                        else:
-                            filename = f"snowflake_export.{get_file_extension(export_format)}"
-                        
-                        st.download_button(
-                            f"📥 Download {export_format}", 
-                            data=export_content, 
-                            file_name=filename, 
-                            mime=get_mime_type(export_format),
-                            key=f"sf_download_{hash(generated_sql) % 1000}"
-                        )
                 else:
-                    st.error(f"❌ Database SQL Generation Error: {sql_error}")
+                    st.error(f"❌ SQL Generation Error: {sql_error}")
 
     except Exception as e:
-        st.error(f"❌ Database analysis failed: {str(e)}")
-        st.info("💡 Try checking your table name, column name, database permissions, and field disambiguation.")
-
+        st.error(f"❌ Analysis failed: {str(e)}")
+        st.info("💡 Check your table name, column name, and database permissions.")
 
 def render_custom_sql_execution_ui(conn_manager):
     st.markdown("### 📊 Custom SQL Execution")
