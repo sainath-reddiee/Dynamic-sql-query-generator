@@ -800,7 +800,7 @@ def render_snowflake_field_suggestions():
 def execute_snowflake_analysis(conn_manager, table_name, json_column, field_conditions, sample_size, execution_mode, show_preview):
     try:
         if execution_mode == "🔍 Analyze Schema Only":
-            with st.spinner(f"🔄 Database schema analysis with field disambiguation..."):
+            with st.spinner(f"🔄 Analyzing database schema..."):
                 if analyze_database_json_schema_universal:
                     schema, error, metadata = analyze_database_json_schema_universal(
                         conn_manager, table_name, json_column, sample_size
@@ -809,21 +809,30 @@ def execute_snowflake_analysis(conn_manager, table_name, json_column, field_cond
                     schema, error, metadata = None, "Function not available", {}
 
                 if schema:
-                    st.success(f"✅ Database schema analysis complete! Found {len(schema)} fields.")
-
+                    # Store results in session state
                     st.session_state.discovered_schema_sf = schema
                     st.session_state.schema_metadata_sf = metadata
-
-                    # Show disambiguation summary
+                    
+                    # Show compact summary
                     disambiguation_info = metadata.get('disambiguation_info', {})
-                    if disambiguation_info:
-                        st.info(f"🚨 Found {len(disambiguation_info)} field names with multiple locations in your database. Check the detailed preview for disambiguation options.")
+                    col_sum1, col_sum2, col_sum3 = st.columns(3)
+                    with col_sum1:
+                        st.metric("Fields Found", len(schema))
+                    with col_sum2:
+                        st.metric("Queryable Fields", sum(1 for details in schema.values() if details.get('is_queryable', False)))
+                    with col_sum3:
+                        st.metric("Name Conflicts", len(disambiguation_info) if disambiguation_info else 0)
+                    
+                    # Compact success message with dropdown for details
+                    with st.expander("📊 Analysis Details", expanded=False):
+                        if disambiguation_info:
+                            st.warning(f"⚠️ Found {len(disambiguation_info)} field names with multiple locations. Use full paths for clarity.")
+                        
+                        # Count expected columns for this analysis (only show in details)
+                        count_expected_columns_from_conditions(field_conditions, schema, disambiguation_info)
 
-                    # Count expected columns for this analysis
-                    count_expected_columns_from_conditions(field_conditions, schema, disambiguation_info)
-
-                    if show_preview and render_enhanced_database_json_preview:
-                        render_enhanced_database_json_preview(schema, metadata)
+                        if show_preview and render_enhanced_database_json_preview:
+                            render_enhanced_database_json_preview(schema, metadata)
                 else:
                     st.error(f"❌ Database schema analysis failed: {error}")
 
@@ -919,24 +928,40 @@ def execute_snowflake_analysis(conn_manager, table_name, json_column, field_cond
                 if generated_sql and not sql_error:
                     st.success("✅ Database SQL Generated for Export!")
                     
-                    # Export format selection
+                    # Export format selection - Use unique key to prevent conflicts
                     export_format = st.selectbox(
                         "Choose Export Format:", 
                         ["SQL File", "dbt Model", "Jupyter Notebook"], 
-                        key="sf_export_format"
+                        key=f"sf_export_format_{hash(generated_sql) % 1000}"  # Unique key to prevent conflicts
                     )
                     
-                    export_content = generate_export_content(generated_sql, export_format, table_name, field_conditions)
-                    
-                    with st.expander("👀 Export Content Preview", expanded=True):
-                        st.code(export_content, language="sql" if "sql" in export_format.lower() else "python")
-                    
-                    st.download_button(
-                        f"📥 Download {export_format}", 
-                        data=export_content, 
-                        file_name=f"database_export.{get_file_extension(export_format)}", 
-                        mime=get_mime_type(export_format)
-                    )
+                    # Add export button to prevent auto-generation
+                    if st.button("🚀 Generate Export File", type="primary", key=f"sf_generate_export_{hash(generated_sql) % 1000}"):
+                        export_content = generate_export_content(generated_sql, export_format, table_name, field_conditions)
+                        
+                        if export_format == "dbt Model":
+                            st.success("📋 Complete dbt Model Package generated!")
+                            st.info("🎯 **This includes:** Model SQL + Schema YAML + Installation instructions")
+                        else:
+                            st.success(f"📋 {export_format} generated successfully!")
+                        
+                        with st.expander("👀 Export Content Preview", expanded=True):
+                            st.code(export_content, language="sql" if "sql" in export_format.lower() else "python")
+                        
+                        # Generate download filename
+                        if export_format == "dbt Model":
+                            model_name = table_name.split('.')[-1].lower().replace('-', '_').replace(' ', '_')
+                            filename = f"dbt_model_{model_name}.sql"
+                        else:
+                            filename = f"snowflake_export.{get_file_extension(export_format)}"
+                        
+                        st.download_button(
+                            f"📥 Download {export_format}", 
+                            data=export_content, 
+                            file_name=filename, 
+                            mime=get_mime_type(export_format),
+                            key=f"sf_download_{hash(generated_sql) % 1000}"
+                        )
                 else:
                     st.error(f"❌ Database SQL Generation Error: {sql_error}")
 
