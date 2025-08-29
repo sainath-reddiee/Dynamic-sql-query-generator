@@ -677,29 +677,28 @@ def render_smart_json_analysis_ui(conn_manager):
         )
 
     with input_col2:
-        json_column = st.text_input(
-            "JSON Column Name* 📄",
-            placeholder="json_data",
-            key="sf_json_column",
-            help="Name of the column containing JSON data"
-        )
+                    json_column = st.text_input(
+                        "JSON Column Name* 📄",
+                        placeholder="json_data",
+                        key="sf_json_column",
+                        help="Name of the column containing JSON data"
+                    )
 
-        execution_mode = st.radio(
-            "Choose Action:", 
-            ["🔍 Analyze Schema Only", "🚀 Analyze & Execute", "📋 Export Generated SQL"], 
-            key="sf_execution_mode",
-            help="Choose how to handle the database analysis"
-        )
-        
-        # Show export format selection when Export is chosen
-        export_format = None
-        if execution_mode == "📋 Export Generated SQL":
-            export_format = st.selectbox(
-                "Export Format:", 
-                ["SQL File", "dbt Model", "Jupyter Notebook"], 
-                key="sf_export_format_selection",
-                help="Choose the format for exporting your generated SQL"
-            )
+                    execution_mode = st.radio(
+                        "Choose Action:", 
+                        ["🔍 Analyze Schema Only", "🚀 Analyze & Execute", "📋 Export for External Use"], 
+                        key="sf_execution_mode",
+                        help="Choose how to handle the database analysis"
+                    )
+
+                # Show export format selection when Export is chosen (matching Python mode)
+                if execution_mode == "📋 Export for External Use":
+                    export_format = st.selectbox(
+                        "Export Format:", 
+                        ["SQL File", "dbt Model", "Jupyter Notebook"], 
+                        key="sf_export_format",
+                        help="Choose the format for exporting your generated SQL"
+                    )
 
     # Field parsing debug for Snowflake mode
     if field_conditions:
