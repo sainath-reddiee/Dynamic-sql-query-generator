@@ -235,23 +235,20 @@ def parse_field_conditions_enhanced(field_conditions: str) -> List[str]:
     if not field_conditions or not field_conditions.strip():
         return []
     try:
-        st.info(f"🔍 **Debug: Parsing input:** `{field_conditions}`")
         raw_fields = [f.strip() for f in field_conditions.split(',') if f.strip()]
-        st.info(f"📋 **Debug: Raw fields after split:** {raw_fields}")
-        parsed_fields = []
-        for i, field in enumerate(raw_fields):
-            if field:  # Only add non-empty fields
-                parsed_fields.append(field)
-                st.info(f"✅ **Field {i+1}:** `{field}`")
-        st.success(f"🎯 **Total fields parsed: {len(parsed_fields)}** - {parsed_fields}")
+        parsed_fields = [field for field in raw_fields if field]  # Only add non-empty fields
+        
+        # Only show debug in expandable section to save space
+        with st.expander("🔍 Field Parsing Details", expanded=False):
+            st.info(f"📋 Input: `{field_conditions}`")
+            st.success(f"✅ Parsed {len(parsed_fields)} fields: {', '.join([f'`{f}`' for f in parsed_fields])}")
         
         return parsed_fields
         
     except Exception as e:
         st.error(f"❌ Field parsing error: {str(e)}")
         return []
-
-
+        
 def count_expected_columns_from_conditions(field_conditions: str, temp_schema: Dict = None, disambiguation_info: Dict = None) -> int:
     try:
         parsed_fields = parse_field_conditions_enhanced(field_conditions)
