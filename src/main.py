@@ -922,7 +922,7 @@ def execute_snowflake_analysis(conn_manager, table_name, json_column, field_cond
                     # Export format selection
                     export_format = st.selectbox(
                         "Choose Export Format:", 
-                        ["SQL File", "Python Script", "dbt Model", "Jupyter Notebook", "PowerBI Template"], 
+                        ["SQL File", "dbt Model", "Jupyter Notebook"], 
                         key="sf_export_format"
                     )
                     
