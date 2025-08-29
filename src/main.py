@@ -1217,7 +1217,7 @@ def main():
                         expected_columns = count_expected_columns_from_conditions(field_conditions, temp_schema, disambiguation_info)
 
                 if execution_mode == "📋 Export for External Use":
-                    export_format = st.selectbox("Export Format:", ["SQL File", "Python Script", "dbt Model", "Jupyter Notebook", "PowerBI Template"], key="py_export_format")
+                    export_format = st.selectbox("Export Format:", ["SQL File", "dbt Model", "Jupyter Notebook"], key="py_export_format")
 
                 st.markdown("### 🚀 Generation & Execution")
                 mode_display = execution_mode.split(' ', 1)[1]
