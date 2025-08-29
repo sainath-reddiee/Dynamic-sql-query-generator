@@ -1315,11 +1315,48 @@ def main():
                                     st.download_button("📋 Download SQL Query", data=sql, file_name="generated_query.sql", mime="text/sql")
                                 elif execution_mode == "📋 Export for External Use":
                                     export_format_val = safe_get_session_state('py_export_format', 'SQL File')
-                                    st.success(f"📋 {export_format_val} generated successfully!")
-                                    export_content = generate_export_content(sql, export_format_val, table_name, field_conditions)
-                                    with st.expander("👀 Export Content Preview", expanded=True):
-                                        st.code(export_content, language="sql" if "sql" in export_format_val.lower() else "python")
-                                    st.download_button(f"📥 Download {export_format_val}", data=export_content, file_name=f"export.{get_file_extension(export_format_val)}", mime=get_mime_type(export_format_val))
+                                    
+                                    if export_format_val == "dbt Model":
+                                        st.success("📋 Complete dbt Model Package generated!")
+                                        st.info("🎯 **This includes:** Model SQL + Schema YAML + Installation instructions")
+                                        
+                                        export_content = generate_export_content(sql, export_format_val, table_name, field_conditions)
+                                        
+                                        with st.expander("👀 Complete dbt Package Preview", expanded=True):
+                                            st.code(export_content, language="sql")
+                                        
+                                        # Parse model name from table
+                                        model_name = table_name.split('.')[-1].lower().replace('-', '_').replace(' ', '_')
+                                        filename = f"dbt_model_{model_name}.sql"
+                                        
+                                        st.download_button(
+                                            f"📥 Download Complete dbt Package", 
+                                            data=export_content, 
+                                            file_name=filename, 
+                                            mime="text/sql"
+                                        )
+                                        
+                                        st.markdown(f"""
+                                        ### 📋 dbt Setup Instructions:
+                                        1. **Save the model:** Copy the model SQL to `models/{model_name}.sql`
+                                        2. **Update schema.yml:** Add the source and model configuration 
+                                        3. **Run the model:** `dbt run --models {model_name}`
+                                        4. **Test the model:** `dbt test --models {model_name}`
+                                        """)
+                                    else:
+                                        # Handle other export formats as before
+                                        st.success(f"📋 {export_format_val} generated successfully!")
+                                        export_content = generate_export_content(sql, export_format_val, table_name, field_conditions)
+                                        
+                                        with st.expander("👀 Export Content Preview", expanded=True):
+                                            st.code(export_content, language="sql" if "sql" in export_format_val.lower() else "python")
+                                        
+                                        st.download_button(
+                                            f"📥 Download {export_format_val}", 
+                                            data=export_content, 
+                                            file_name=f"export.{get_file_extension(export_format_val)}", 
+                                            mime=get_mime_type(export_format_val)
+                                        )
                                 render_disambiguation_details(sql, warnings, field_conditions, disambiguation_details)
                             except Exception as e:
                                 st.error(f"❌ SQL generation error: {str(e)}")
