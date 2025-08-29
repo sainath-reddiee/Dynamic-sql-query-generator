@@ -95,17 +95,19 @@ class PythonSQLGenerator:
             return f"{field_name}_in_nested_{nested_arrays[-1].rstrip('s')}"
     
     def _create_multi_level_field_map(self, field_name_tracker: Dict, schema: Dict) -> Dict:
-        """Create multi-level field map for fields that appear at multiple levels"""
+        """Create multi-level field map for fields that appear at multiple levels (EXACT name matching only)"""
         multi_level_map = {}
         
         for field_name, occurrences in field_name_tracker.items():
+            # Only consider fields with EXACT name matches (not substrings)
             queryable_occurrences = [
                 occ for occ in occurrences 
-                if schema[occ['full_path']]['is_queryable']
+                if schema[occ['full_path']]['is_queryable'] and 
+                occ['full_path'].split('.')[-1] == field_name  # EXACT match only
             ]
             
             if len(queryable_occurrences) > 1:
-                # Field appears at multiple levels - create multi-level entry
+                # Field appears at multiple levels with EXACT same name - create multi-level entry
                 multi_level_map[field_name] = {
                     'total_occurrences': len(queryable_occurrences),
                     'paths': []
