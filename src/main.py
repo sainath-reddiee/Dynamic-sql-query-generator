@@ -922,8 +922,11 @@ def execute_snowflake_analysis(conn_manager, table_name, json_column, field_cond
                 else: 
                     st.error(f"❌ SQL Generation Error: {sql_error}")
 
-        elif execution_mode == "📋 Export Generated SQL":
-            with st.spinner("📋 Generating SQL for export..."):
+        elif execution_mode == "📋 Export for External Use":
+            # Get the selected export format
+            export_format = st.session_state.get('sf_export_format', 'SQL File')
+            
+            with st.spinner(f"📋 Generating {export_format}..."):
                 if generate_database_driven_sql:
                     generated_sql, sql_error = generate_database_driven_sql(
                         conn_manager, table_name, json_column, field_conditions
@@ -932,48 +935,52 @@ def execute_snowflake_analysis(conn_manager, table_name, json_column, field_cond
                     generated_sql, sql_error = None, "Function not available"
 
                 if generated_sql and not sql_error:
-                    st.success("✅ SQL Generated for Export!")
-                    
-                    # Get export format from session state (set in UI above)
-                    export_format = st.session_state.get('sf_export_format_selection', 'SQL File')
-                    
-                    # Generate export content
-                    export_content = generate_export_content(generated_sql, export_format, table_name, field_conditions)
-                    
-                    # Show success message based on format
+                    # Handle different export formats (matching Python mode logic)
                     if export_format == "dbt Model":
-                        st.success("📋 Complete dbt Model Package Generated!")
-                        st.info("🎯 **Includes:** Model SQL + Schema YAML + Setup Instructions")
+                        st.success("📋 Complete dbt Model Package generated!")
+                        st.info("🎯 **This includes:** Model SQL + Schema YAML + Installation instructions")
                         
-                        # Parse model name for filename
+                        export_content = generate_export_content(generated_sql, export_format, table_name, field_conditions)
+                        
+                        with st.expander("👀 Complete dbt Package Preview", expanded=True):
+                            st.code(export_content, language="sql")
+                        
+                        # Parse model name from table
                         model_name = table_name.split('.')[-1].lower().replace('-', '_').replace(' ', '_')
                         filename = f"dbt_model_{model_name}.sql"
                         
-                        # Show dbt-specific setup instructions
-                        with st.expander("📋 dbt Setup Instructions", expanded=False):
-                            st.markdown(f"""
-                            ### 🚀 dbt Model Setup:
-                            1. **Save Model:** `models/{model_name}.sql`
-                            2. **Update Schema:** Add configuration to `schema.yml`
-                            3. **Run Model:** `dbt run --models {model_name}`
-                            4. **Test Model:** `dbt test --models {model_name}`
-                            """)
+                        st.download_button(
+                            f"📥 Download Complete dbt Package", 
+                            data=export_content, 
+                            file_name=filename, 
+                            mime="text/sql",
+                            type="primary"
+                        )
+                        
+                        st.markdown(f"""
+                        ### 📋 dbt Setup Instructions:
+                        1. **Save the model:** Copy the model SQL to `models/{model_name}.sql`
+                        2. **Update schema.yml:** Add the source and model configuration 
+                        3. **Run the model:** `dbt run --models {model_name}`
+                        4. **Test the model:** `dbt test --models {model_name}`
+                        """)
                     else:
-                        st.success(f"📋 {export_format} Generated Successfully!")
+                        # Handle other export formats
+                        st.success(f"📋 {export_format} generated successfully!")
+                        export_content = generate_export_content(generated_sql, export_format, table_name, field_conditions)
+                        
+                        with st.expander("👀 Export Content Preview", expanded=True):
+                            st.code(export_content, language="sql" if "sql" in export_format.lower() else "python")
+                        
                         filename = f"snowflake_export.{get_file_extension(export_format)}"
-                    
-                    # Show preview
-                    with st.expander("👀 Export Content Preview", expanded=True):
-                        st.code(export_content, language="sql" if "sql" in export_format.lower() else "python")
-                    
-                    # Download button
-                    st.download_button(
-                        f"📥 Download {export_format}", 
-                        data=export_content, 
-                        file_name=filename, 
-                        mime=get_mime_type(export_format),
-                        type="primary"
-                    )
+                        
+                        st.download_button(
+                            f"📥 Download {export_format}", 
+                            data=export_content, 
+                            file_name=filename, 
+                            mime=get_mime_type(export_format),
+                            type="primary"
+                        )
                 else:
                     st.error(f"❌ SQL Generation Error: {sql_error}")
 
