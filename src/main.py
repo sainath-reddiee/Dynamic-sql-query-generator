@@ -294,10 +294,6 @@ def generate_export_content(sql, export_format, table_name, field_conditions=Non
 {sql}
 """
     
-    elif export_format == "Python Script":
-        return f"""#!/usr/bin/env python3
-"""
-    
     elif export_format == "dbt Model":
         # Extract table parts for proper dbt structure
         table_parts = table_name.split('.')
@@ -484,72 +480,23 @@ models:
         }
         return json.dumps(notebook_content, indent=2)
 
-    elif export_format == "PowerBI Template":
-        return f"""# Power BI Data Source Template
-# Generated: {timestamp}
-# Table: {table_name}
-# Fields: {field_conditions or 'N/A'}
-
-# 1. SNOWFLAKE CONNECTION SETUP
-# ================================
-# In Power BI Desktop:
-# 1. Go to "Get Data" > "More..." 
-# 2. Search for and select "Snowflake"
-# 3. Enter your Snowflake account details
-
-# Connection String Format:
-# Server: your-account.snowflakecomputing.com
-# Database: {table_parts[0] if '.' in table_name else 'your_database'}
-# Warehouse: your_warehouse
-
-# 2. CUSTOM SQL QUERY
-# ===================
-# Use this SQL in Power BI's "Advanced Options" > "SQL Statement":
-
-{sql}
-
-# 3. POWER BI SETUP STEPS
-# ========================
-# After importing the data:
-# 1. Check data types in Power Query Editor
-# 2. Rename columns if needed for better visualization
-# 3. Create relationships if combining with other tables
-# 4. Build your visualizations
-
-# 4. RECOMMENDED VISUALIZATIONS
-# =============================
-# Based on your field selection:
-{f'# Fields: {field_conditions}' if field_conditions else '# Fields: Various JSON fields'}
-# 
-# Suggested chart types:
-# - Table/Matrix for detailed view
-# - Cards for key metrics
-# - Bar charts for categorical data
-# - Line charts for time series (if date fields present)
-
-# 5. REFRESH CONFIGURATION
-# =========================
-# To enable automatic refresh:
-# 1. Configure Snowflake gateway connection
-# 2. Set up scheduled refresh in Power BI Service
-# 3. Ensure proper credentials are stored securely
-"""
     else:
         return f"# Unknown export format: {export_format}\n{sql}"
 
 def get_file_extension(export_format):
     extensions = {
         "SQL File": "sql", 
-        "Python Script": "py", 
-        "dbt Model": "sql",  # Will be a complete dbt package
-        "Jupyter Notebook": "ipynb", 
-        "PowerBI Template": "txt"
+        "dbt Model": "sql",
+        "Jupyter Notebook": "ipynb"
     }
     return extensions.get(export_format, "txt")
 
-
 def get_mime_type(export_format):
-    mime_types = { "SQL File": "text/sql", "Python Script": "text/x-python", "dbt Model": "text/sql", "Jupyter Notebook": "application/json", "PowerBI Template": "text/plain" }
+    mime_types = { 
+        "SQL File": "text/sql", 
+        "dbt Model": "text/sql", 
+        "Jupyter Notebook": "application/json" 
+    }
     return mime_types.get(export_format, "text/plain")
 
 
