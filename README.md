@@ -16,7 +16,7 @@ Connect to Snowflake: Securely connect to your Snowflake instance to perform liv
 
 Explore Smart Suggestions: Get intelligent, context-aware field suggestions based on your data's actual schema.
 
-workflow
+🔁 Application Workflow
 The application provides two distinct, powerful workflows:
 
 1. 🐍 Python Mode (Rapid Prototyping)
