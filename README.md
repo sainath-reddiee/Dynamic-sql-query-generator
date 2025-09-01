@@ -1,256 +1,136 @@
-# ❄️ Dynamic SQL Generator for Complex JSON Data in Snowflake
+❄️ Dynamic SQL Analyzer & Generator for Snowflake v3.0
+Transform complex JSON into powerful, production-ready Snowflake SQL with an intelligent, interactive application.
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://your-app-url.streamlit.app)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com/)
+This tool has evolved from a powerful script into a full-featured Streamlit application designed for enterprise-grade JSON processing. It offers a dual-mode workflow that caters to both rapid development with sample data and live, large-scale analysis directly against your Snowflake database.
 
-A **production-ready** web application for analyzing complex JSON data structures and generating dynamic SQL procedures for Snowflake databases. Perfect for data engineers, developers, and analysts working with nested JSON data.
+🚀 Live Demo & Features
+Experience the application live: Dynamic SQL Generator v3.0
 
-## 🚀 **Quick Deploy**
+The live demo showcases the full power of the application, allowing you to:
 
-### Streamlit Cloud (1-Click Deploy)
-[![Deploy to Streamlit Cloud](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/)
+Interactively Analyze JSON: Upload or paste your JSON and see a complete structural analysis in real-time.
 
-### Docker (Production Ready)
-```bash
-docker run -p 8501:8501 json-sql-analyzer
-```
+Generate SQL Dynamically: Use the interactive UI to define your query parameters and watch the SQL code generate instantly.
 
-### Local Development
-```bash
-git clone <repo-url>
-pip install -r requirements.txt
-streamlit run streamlit_app.py
-```
+Connect to Snowflake: Securely connect to your Snowflake instance to perform live data analysis and query execution.
 
-## 🚀 Live Demo
+Explore Smart Suggestions: Get intelligent, context-aware field suggestions based on your data's actual schema.
 
-Try the live application: **[Dynamic SQL Generator](https://your-app-url.streamlit.app)**
+workflow
+The application provides two distinct, powerful workflows:
 
-## ✨ Features
+1. 🐍 Python Mode (Rapid Prototyping)
+Ideal for developers who need to quickly generate and test SQL based on a sample of their JSON.
 
-### 📥 Multiple Input Methods
-- **File Upload**: Upload JSON files directly
-- **Text Input**: Paste JSON data manually
-- **Sample Data**: Use built-in examples to explore features
+Provide Sample Data: Paste or upload your JSON data directly into the application's sidebar.
 
-### 🧪 Comprehensive JSON Analysis
-- **📊 Complete Path Mapping**: View all possible paths in your JSON structure
-- **📋 Array Detection**: Identify arrays requiring LATERAL FLATTEN operations
-- **🏗️ Nested Object Analysis**: Understand complex hierarchical structures
-- **🔍 Queryable Field Identification**: Find database-ready fields with type mapping
+Analyze Structure: The application instantly parses the JSON, identifies all possible paths, and detects any fields with ambiguous names (e.g., id appearing in multiple nested objects).
 
-### ⚙️ Snowflake Integration
-- **Dynamic SQL Generation**: Create flexible procedures for varying JSON structures
-- **Parameter Validation**: Smart parameter suggestions based on your data
-- **Type Casting Support**: Handle complex type conversions
-- **Production-Ready Code**: Generate deployment-ready stored procedures
+Define Your Query: Specify the fields you want to select and the conditions to apply. The UI provides smart suggestions based on your data to accelerate this process.
 
-### 🎨 Utility Features
-- **JSON Prettification**: Format and beautify JSON data
-- **Export Capabilities**: Download analysis results and formatted JSON
-- **Interactive Filtering**: Search and filter results dynamically
-- **Real-time Statistics**: Live overview of your JSON structure
+Generate & Export: Instantly generate the SQL. From there, you can export it as a .sql file, a complete dbt model, or a Jupyter Notebook.
 
-## 🛠️ Installation & Setup
+2. 🏔️ Snowflake Mode (Live Database Analysis)
+Perfect for data analysts and engineers who need to work with live, large-scale data directly in their warehouse.
 
-### Option 1: Run Locally
+Connect Securely: Use the unified connector to establish a connection to your Snowflake instance in either Standard or Enhanced (high-performance) mode.
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/yourusername/snowflake-json-generator.git
-   cd snowflake-json-generator
-   ```
+Analyze Live Schema: The tool samples your actual table to build an accurate schema, including data types and field frequencies, ensuring your queries are based on the real structure of your data.
 
-2. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+Generate & Execute: Construct your query using intelligent, database-aware suggestions. You can then generate and execute the SQL directly against your database.
 
-3. **Run the application**:
-   ```bash
-   streamlit run app.py
-   ```
+Review Performance: Get immediate feedback with performance metrics, including execution time, rows returned, and memory usage, to understand the impact of your queries.
 
-4. **Open your browser** and navigate to `http://localhost:8501`
+🎯 Use Cases
+1. E-commerce Analytics
+Unpack complex order and customer data with ease.
 
-### Option 2: Docker Deployment
+Example JSON:
 
-1. **Build and run with Docker**:
-   ```bash
-   docker-compose up --build
-   ```
-
-2. **Access the application** at `http://localhost:8501`
-
-### Option 3: Deploy to Streamlit Cloud
-
-1. **Fork this repository**
-2. **Connect to Streamlit Cloud**
-3. **Deploy directly** from your GitHub repository
-
-## 📋 Usage Guide
-
-### Basic Workflow
-
-1. **📥 Input JSON Data**
-   - Upload a JSON file, paste JSON text, or use sample data
-   
-2. **🧪 Analyze Structure**
-   - View complete path analysis
-   - Identify arrays and nested objects
-   - Find queryable fields
-   
-3. **⚙️ Generate SQL Procedure**
-   - Configure table and column names
-   - Specify field conditions
-   - Get production-ready Snowflake procedure
-
-### Snowflake Setup
-
-1. **Create the Stored Procedure** in your Snowflake environment:
-   ```sql
-   -- Copy the generated procedure code from the app
-   CREATE OR REPLACE PROCEDURE YOUR_SCHEMA.DYNAMIC_SQL_GENERATOR(...)
-   -- ... (complete procedure code)
-   ```
-
-2. **Test the Procedure**:
-   ```sql
-   CALL YOUR_SCHEMA.DYNAMIC_SQL_GENERATOR(
-       'YOUR_TABLE_NAME',
-       'YOUR_JSON_COLUMN',
-       'field1, field2[>:100], field3[CAST:STRING]'
-   );
-   ```
-
-### Parameter Format Examples
-
-| Format | Description | Example |
-|--------|-------------|---------|
-| `field_name` | Simple extraction | `user_id` |
-| `field[op:value]` | With condition | `age[>:18]` |
-| `field[CAST:TYPE]` | Type casting | `price[CAST:NUMBER]` |
-| `field1, field2` | Multiple fields | `name, email` |
-| `field[op:val:LOGIC]` | Custom logic | `status[=:active:OR]` |
-
-**Supported Operators**: `=`, `!=`, `>`, `<`, `>=`, `<=`, `LIKE`, `NOT LIKE`, `IN`, `NOT IN`, `BETWEEN`, `CONTAINS`, `IS NULL`, `IS NOT NULL`
-
-## 🎯 Use Cases
-
-### 1. **E-commerce Analytics**
-```json
 {
   "order_id": "ORD-123",
   "customer": {"id": 456, "tier": "premium"},
   "items": [{"product_id": "PROD-789", "price": 99.99}]
 }
-```
-**Generated Fields**: `order_id`, `customer.tier`, `items.product_id`, `items.price`
 
-### 2. **API Response Processing**
-```json
+Generated Fields: order_id, customer_tier, items_product_id, items_price.
+
+2. API Response Processing
+Flatten and query nested JSON responses from APIs in a single step.
+
+Example JSON:
+
 {
   "user": {"profile": {"settings": {"theme": "dark"}}},
   "activity": [{"action": "login", "timestamp": "2024-01-01"}]
 }
-```
-**Generated Fields**: `user.profile.settings.theme`, `activity.action`, `activity.timestamp`
 
-### 3. **IoT Data Analysis**
-```json
+Generated Fields: user_profile_settings_theme, activity_action, activity_timestamp.
+
+3. IoT Data Analysis
+Query time-series data from sensors and devices with complex nested structures.
+
+Example JSON:
+
 {
   "device_id": "DEV-001",
   "sensors": [
     {"type": "temperature", "value": 23.5, "unit": "celsius"}
   ]
 }
-```
-**Generated Fields**: `device_id`, `sensors.type`, `sensors.value`, `sensors.unit`
 
-## 📊 Sample Data
+Generated Fields: device_id, sensors_type, sensors_value, sensors_unit.
 
-The application includes comprehensive sample data showcasing:
-- **Nested Objects**: User profiles with address and preferences
-- **Complex Arrays**: Order histories with multiple items
-- **Mixed Data Types**: Strings, numbers, booleans, nulls
-- **Deep Nesting**: Multi-level hierarchical structures
+⚙️ Parameter Format Examples
+Format
 
-## 🔧 Advanced Features
+Description
 
-### Smart Type Detection
-- **Automatic Snowflake type mapping** from Python types
-- **Conflict resolution** for mixed-type fields
-- **Custom casting** support for type conversion
+Example
 
-### Array Handling
-- **Automatic LATERAL FLATTEN** generation
-- **Parent-child relationship** detection
-- **Nested array** support with proper aliasing
+field_name
 
-### Export Options
-- **CSV export** of analysis results
-- **SQL procedure** download
-- **Formatted JSON** export
-- **Analysis reports** in multiple formats
+Simple extraction
 
-## 🤝 Contributing
+user_id
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+field[op:value]
 
-### Development Setup
+With condition
 
-1. **Fork and clone** the repository
-2. **Create a virtual environment**:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-3. **Install development dependencies**:
-   ```bash
-   pip install -r requirements-dev.txt
-   ```
-4. **Run tests**:
-   ```bash
-   pytest tests/
-   ```
+age[>:18]
 
-### Feature Requests & Bug Reports
+field[CAST:TYPE]
 
-- 🐛 **Bug Reports**: [Create an issue](https://github.com/yourusername/repo/issues)
-- 💡 **Feature Requests**: [Start a discussion](https://github.com/yourusername/repo/discussions)
-- 📧 **Direct Contact**: your-email@domain.com
+Type casting
 
-## 📈 Roadmap
+price[CAST:NUMBER]
 
-- [ ] **Multi-database Support**: PostgreSQL, BigQuery, Redshift
-- [ ] **Batch Processing**: Handle multiple JSON files
-- [ ] **API Integration**: REST API for programmatic access
-- [ ] **Advanced Analytics**: Statistical analysis of JSON structures
-- [ ] **Template Library**: Pre-built templates for common use cases
-- [ ] **Performance Optimization**: Large file handling improvements
+field1, field2
 
-## 📝 License
+Multiple fields
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+name, email
 
-## 🙏 Acknowledgments
+field[op:val:LOGIC]
 
-- **Streamlit Team** for the amazing web app framework
-- **Snowflake** for powerful JSON processing capabilities
-- **Open Source Community** for inspiration and feedback
+Custom logic
 
-## 📞 Support
+status[=:active:OR]
 
-- **Documentation**: [Wiki](https://github.com/yourusername/repo/wiki)
-- **Community**: [Discussions](https://github.com/yourusername/repo/discussions)
-- **Issues**: [Bug Tracker](https://github.com/yourusername/repo/issues)
+Supported Operators: =, !=, >, <, >=, <=, LIKE, NOT LIKE, IN, NOT IN, BETWEEN, CONTAINS, IS NULL, IS NOT NULL.
 
----
+🔧 Technical Highlights
+Intelligent Field Disambiguation: The core engine automatically detects fields with the same name in different parts of the JSON structure and generates unique, context-aware aliases to prevent conflicts in your final query.
 
-**Built with ❤️ for the data community**
+Performance-Tuned Engine: Features an optional high-performance mode with Modin acceleration for processing large datasets, alongside intelligent schema caching to dramatically speed up repeated analyses.
 
-[![Made with Streamlit](https://img.shields.io/badge/Made%20with-Streamlit-red.svg)](https://streamlit.io)
-[![Snowflake](https://img.shields.io/badge/Snowflake-Ready-blue.svg)](https://snowflake.com)
-[![JSON](https://img.shields.io/badge/JSON-Processing-green.svg)](https://json.org)
+Robust Engine: The SQL generation engine correctly handles deeply nested arrays, parent-child relationships, and context-aware aliasing to produce optimized and readable queries.
+
+Security-First Design: Includes built-in input sanitization to prevent SQL injection and follows security best practices, ensuring that the generated code is safe for production environments.
+
+🤝 Contributing
+Contributions are welcome! Please see our Contributing Guide for details on setting up a development environment, running tests, and submitting pull requests.
+
+📝 License
+This project is licensed under the MIT License. See the LICENSE file for details.
