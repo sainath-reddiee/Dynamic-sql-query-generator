@@ -1,102 +1,122 @@
-Of course, here is the content of the `abc.html` file converted into a GitHub `README.md` file.
+# ❄️ Dynamic SQL Analyzer & Generator for Snowflake v3.0
 
-# ⚡ Dynamic SQL Generator
+Transform complex JSON into powerful, production-ready Snowflake SQL with an intelligent, interactive Streamlit application.
 
-\<div align="center"\>
-\<img src="[https://path-to-your-logo.png](https://www.google.com/search?q=https://path-to-your-logo.png)" alt="Dynamic SQL Generator Logo" width="150"/\>
-\<h2\>Revolutionizing JSON Data Processing in Snowflake\</h2\>
-\</div\>
+---
 
-\<div align="center"\>
-\<img src="[https://img.shields.io/badge/Time%20Saved-95%25-brightgreen](https://www.google.com/search?q=https://img.shields.io/badge/Time%2520Saved-95%2525-brightgreen)" alt="95% Time Saved"/\>
-\<img src="[https://img.shields.io/badge/Query%20Generation-30s-blue](https://www.google.com/search?q=https://img.shields.io/badge/Query%2520Generation-30s-blue)" alt="30s Query Generation"/\>
-\<img src="[https://img.shields.io/badge/Dataset%20Support-Multi--GB-orange](https://www.google.com/search?q=https://img.shields.io/badge/Dataset%2520Support-Multi--GB-orange)" alt="Multi-GB Dataset Support"/\>
-\<img src="[https://img.shields.io/badge/Setup-Zero%20Required-red](https://www.google.com/search?q=https://img.shields.io/badge/Setup-Zero%2520Required-red)" alt="Zero Setup Required"/\>
-\</div\>
+## 🚀 Live Demo
 
------
+Try it now: [Dynamic SQL Generator v3.0](https://sainath-reddie.streamlit.app/)  
+Experience real-time JSON analysis and SQL generation in your browser.
 
-## 🚀 Key Features
+---
 
-### 🐍 Dual Operation Modes
+## 🔁 Application Workflow
 
-Work your way, anywhere, anytime.
+### 1. 🐍 Python Mode (Rapid Prototyping)
 
-  - **Python Mode**: Instant portable SQL generation.
-  - **Snowflake Mode**: Live schema analysis.
-  - No database connection required for prototyping.
-  - Real-time data sampling for accuracy.
+- Paste or upload JSON in the sidebar.
+- Instantly parse structure and detect ambiguous fields.
+- Select fields and conditions with smart suggestions.
+- Generate SQL and export as `.sql`, dbt model, or Jupyter Notebook.
 
-### 📊 Multi-Format Exports
+### 2. 🏔️ Snowflake Mode (Live Database Analysis)
 
-From idea to production in one click.
+- Securely connect to Snowflake (Standard or Enhanced mode).
+- Sample actual tables to build accurate schema.
+- Generate and execute SQL directly against your warehouse.
+- Review performance metrics: execution time, rows returned, memory usage.
 
-  - Clean SQL files ready for deployment.
-  - Production-ready dbt models.
-  - Interactive Jupyter notebooks.
-  - Copy-paste ready code snippets.
+---
 
-### 🧠 AI-Powered Intelligence
+## 🎯 Use Cases
 
-Smart automation that just works.
+### 1. E-commerce Analytics
 
-  - Automatic field disambiguation.
-  - Dynamic type casting & validation.
-  - Intelligent schema optimization.
-  - Complex nesting detection.
+```json
+{
+  "order_id": "ORD-123",
+  "customer": {"id": 456, "tier": "premium"},
+  "items": [{"product_id": "PROD-789", "price": 99.99}]
+}
+```
 
-### ⚡ Enterprise Performance
+**Generated Fields:**  
+`order_id`, `customer_tier`, `items_product_id`, `items_price`
 
-Built for scale, optimized for speed.
+---
 
-  - Memory-efficient JSON parsing.
-  - Adaptive batching algorithms.
-  - Intelligent schema caching.
-  - Multi-gigabyte dataset support.
+### 2. API Response Processing
 
-### ⚙️ Advanced SQL Operations
+```json
+{
+  "user": {"profile": {"settings": {"theme": "dark"}}},
+  "activity": [{"action": "login", "timestamp": "2024-01-01"}]
+}
+```
 
-Complete operator support for complex queries.
+**Generated Fields:**  
+`user_profile_settings_theme`, `activity_action`, `activity_timestamp`
 
-  - `BETWEEN`, `IN`, `NOT IN` operators.
-  - `LIKE` pattern matching.
-  - Optimized `FLATTEN` operations.
-  - Nested array handling.
+---
 
-### 🚀 Production Ready
+### 3. IoT Data Analysis
 
-Enterprise-grade reliability and security.
+```json
+{
+  "device_id": "DEV-001",
+  "sensors": [
+    {"type": "temperature", "value": 23.5, "unit": "celsius"}
+  ]
+}
+```
 
-  - Robust retry mechanisms.
-  - Error handling & validation.
-  - Modular, maintainable codebase.
-  - Scalable architecture.
+**Generated Fields:**  
+`device_id`, `sensors_type`, `sensors_value`, `sensors_unit`
 
------
+---
 
-## 🎯 From JSON Chaos to SQL Clarity in 3 Steps
+## ⚙️ Parameter Format Examples
 
-| Step 1: Input JSON Data                                    | Step 2: AI Analysis                               | Step 3: Export & Deploy                                   |
-| ---------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------- |
-| Paste your complex JSON or connect to Snowflake.           | Intelligent schema detection and optimization.    | Get production-ready SQL, dbt models, or notebooks.       |
+| Format               | Description       | Example               |
+|----------------------|-------------------|------------------------|
+| `field_name`         | Simple extraction | `user_id`             |
+| `field[op:value]`    | With condition    | `age[>:18]`           |
+| `field[CAST:TYPE]`   | Type casting      | `price[CAST:NUMBER]`  |
+| `field1, field2`     | Multiple fields   | `name, email`         |
+| `field[op:val:LOGIC]`| Custom logic      | `status[=:active:OR]` |
 
------
+**Supported Operators:**  
+`=`, `!=`, `>`, `<`, `>=`, `<=`, `LIKE`, `NOT LIKE`, `IN`, `NOT IN`, `BETWEEN`, `CONTAINS`, `IS NULL`, `IS NOT NULL`
 
-## 🚀 Ready to Transform Your JSON Workflow?
+---
 
-Join thousands of data professionals who've already made the switch.
+## 🔧 Technical Highlights
 
-\<div align="center"\>
-\<a href="[https://sainath-reddie.streamlit.app/](https://sainath-reddie.streamlit.app/)" target="\_blank"\>
-\<img src="[https://img.shields.io/badge/Try%20Live%20Demo-Now-brightgreen?style=for-the-badge\&logo=streamlit](https://www.google.com/search?q=https://img.shields.io/badge/Try%2520Live%2520Demo-Now-brightgreen%3Fstyle%3Dfor-the-badge%26logo%3Dstreamlit)" alt="Try Live Demo Now"/\>
-\</a\>
-\</div\>
+- **Intelligent Field Disambiguation**  
+  Automatically detects duplicate field names and generates unique aliases.
 
-\<div align="center"\>
-\<img src="[https://img.shields.io/badge/-Snowflake-29B5E8?style=for-the-badge\&logo=snowflake\&logoColor=white](https://www.google.com/search?q=https://img.shields.io/badge/-Snowflake-29B5E8%3Fstyle%3Dfor-the-badge%26logo%3Dsnowflake%26logoColor%3Dwhite)" alt="Snowflake"/\>
-\<img src="[https://img.shields.io/badge/-Data%20Engineering-11111?style=for-the-badge\&logo=apache-spark\&logoColor=white](https://www.google.com/search?q=https://img.shields.io/badge/-Data%2520Engineering-11111%3Fstyle%3Dfor-the-badge%26logo%3Dapache-spark%26logoColor%3Dwhite)" alt="Data Engineering"/\>
-\<img src="[https://img.shields.io/badge/-SQL-4479A1?style=for-the-badge\&logo=postgresql\&logoColor=white](https://www.google.com/search?q=https://img.shields.io/badge/-SQL-4479A1%3Fstyle%3Dfor-the-badge%26logo%3Dpostgresql%26logoColor%3Dwhite)" alt="SQL"/\>
-\<img src="[https://img.shields.io/badge/-Streamlit-FF4B4B?style=for-the-badge\&logo=streamlit\&logoColor=white](https://www.google.com/search?q=https://img.shields.io/badge/-Streamlit-FF4B4B%3Fstyle%3Dfor-the-badge%26logo%3Dstreamlit%26logoColor%3Dwhite)" alt="Streamlit"/\>
-\<img src="[https://img.shields.io/badge/-JSON-000000?style=for-the-badge\&logo=json\&logoColor=white](https://www.google.com/search?q=https://img.shields.io/badge/-JSON-000000%3Fstyle%3Dfor-the-badge%26logo%3Djson%26logoColor%3Dwhite)" alt="JSON"/\>
-\<img src="[https://img.shields.io/badge/-Analytics-11111?style=for-the-badge\&logo=google-analytics\&logoColor=white](https://www.google.com/search?q=https://img.shields.io/badge/-Analytics-11111%3Fstyle%3Dfor-the-badge%26logo%3Dgoogle-analytics%26logoColor%3Dwhite)" alt="Analytics"/\>
-\</div\>
+- **Performance-Tuned Engine**  
+  Optional Modin acceleration and schema caching for large datasets.
+
+- **Robust SQL Generation**  
+  Handles deeply nested arrays, parent-child relationships, and aliasing.
+
+- **Security-First Design**  
+  Built-in input sanitization and best practices to prevent SQL injection.
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions!  
+Please refer to the [Contributing Guide](CONTRIBUTING.md) for setup instructions, testing, and pull request guidelines.
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License.  
+See the [LICENSE](LICENSE) file for details.
+
+---
