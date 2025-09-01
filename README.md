@@ -1,136 +1,140 @@
-❄️ Dynamic SQL Analyzer & Generator for Snowflake v3.0
-Transform complex JSON into powerful, production-ready Snowflake SQL with an intelligent, interactive application.
+# ❄️ Dynamic SQL Analyzer & Generator for Snowflake v3.0
 
-This tool has evolved from a powerful script into a full-featured Streamlit application designed for enterprise-grade JSON processing. It offers a dual-mode workflow that caters to both rapid development with sample data and live, large-scale analysis directly against your Snowflake database.
+Transform complex JSON into powerful, production-ready Snowflake SQL with an intelligent, interactive Streamlit application.
 
-🚀 Live Demo & Features
-Experience the application live: Dynamic SQL Generator v3.0
+---
 
-The live demo showcases the full power of the application, allowing you to:
+## 🚀 Live Demo & Features
 
-Interactively Analyze JSON: Upload or paste your JSON and see a complete structural analysis in real-time.
+Experience the full power of the application:
 
-Generate SQL Dynamically: Use the interactive UI to define your query parameters and watch the SQL code generate instantly.
+- **Interactively Analyze JSON**  
+  Upload or paste your JSON and see a complete structural analysis in real-time.
 
-Connect to Snowflake: Securely connect to your Snowflake instance to perform live data analysis and query execution.
+- **Generate SQL Dynamically**  
+  Define query parameters via the UI and watch SQL code generate instantly.
 
-Explore Smart Suggestions: Get intelligent, context-aware field suggestions based on your data's actual schema.
+- **Connect to Snowflake**  
+  Securely connect to your Snowflake instance for live data analysis and query execution.
 
-🔁 Application Workflow
-The application provides two distinct, powerful workflows:
+- **Explore Smart Suggestions**  
+  Get intelligent, context-aware field suggestions based on your actual schema.
 
-1. 🐍 Python Mode (Rapid Prototyping)
-Ideal for developers who need to quickly generate and test SQL based on a sample of their JSON.
+---
 
-Provide Sample Data: Paste or upload your JSON data directly into the application's sidebar.
+## 🔁 Application Workflow
 
-Analyze Structure: The application instantly parses the JSON, identifies all possible paths, and detects any fields with ambiguous names (e.g., id appearing in multiple nested objects).
+### 1. 🐍 Python Mode (Rapid Prototyping)
 
-Define Your Query: Specify the fields you want to select and the conditions to apply. The UI provides smart suggestions based on your data to accelerate this process.
+Ideal for developers working with sample JSON data.
 
-Generate & Export: Instantly generate the SQL. From there, you can export it as a .sql file, a complete dbt model, or a Jupyter Notebook.
+- Paste or upload JSON in the sidebar.
+- Instantly parse structure and detect ambiguous fields.
+- Select fields and conditions with smart suggestions.
+- Generate SQL and export as `.sql`, dbt model, or Jupyter Notebook.
 
-2. 🏔️ Snowflake Mode (Live Database Analysis)
-Perfect for data analysts and engineers who need to work with live, large-scale data directly in their warehouse.
+### 2. 🏔️ Snowflake Mode (Live Database Analysis)
 
-Connect Securely: Use the unified connector to establish a connection to your Snowflake instance in either Standard or Enhanced (high-performance) mode.
+Perfect for analysts working with live, large-scale data.
 
-Analyze Live Schema: The tool samples your actual table to build an accurate schema, including data types and field frequencies, ensuring your queries are based on the real structure of your data.
+- Securely connect to Snowflake (Standard or Enhanced mode).
+- Sample actual tables to build accurate schema.
+- Generate and execute SQL directly against your warehouse.
+- Review performance metrics: execution time, rows returned, memory usage.
 
-Generate & Execute: Construct your query using intelligent, database-aware suggestions. You can then generate and execute the SQL directly against your database.
+---
 
-Review Performance: Get immediate feedback with performance metrics, including execution time, rows returned, and memory usage, to understand the impact of your queries.
+## 🎯 Use Cases
 
-🎯 Use Cases
-1. E-commerce Analytics
-Unpack complex order and customer data with ease.
+### 1. E-commerce Analytics
 
-Example JSON:
-
+**Input JSON:**
+```json
 {
   "order_id": "ORD-123",
   "customer": {"id": 456, "tier": "premium"},
   "items": [{"product_id": "PROD-789", "price": 99.99}]
 }
+```
 
-Generated Fields: order_id, customer_tier, items_product_id, items_price.
+**Generated Fields:**  
+`order_id`, `customer_tier`, `items_product_id`, `items_price`
 
-2. API Response Processing
-Flatten and query nested JSON responses from APIs in a single step.
+---
 
-Example JSON:
+### 2. API Response Processing
 
+**Input JSON:**
+```json
 {
   "user": {"profile": {"settings": {"theme": "dark"}}},
   "activity": [{"action": "login", "timestamp": "2024-01-01"}]
 }
+```
 
-Generated Fields: user_profile_settings_theme, activity_action, activity_timestamp.
+**Generated Fields:**  
+`user_profile_settings_theme`, `activity_action`, `activity_timestamp`
 
-3. IoT Data Analysis
-Query time-series data from sensors and devices with complex nested structures.
+---
 
-Example JSON:
+### 3. IoT Data Analysis
 
+**Input JSON:**
+```json
 {
   "device_id": "DEV-001",
   "sensors": [
     {"type": "temperature", "value": 23.5, "unit": "celsius"}
   ]
 }
+```
 
-Generated Fields: device_id, sensors_type, sensors_value, sensors_unit.
+**Generated Fields:**  
+`device_id`, `sensors_type`, `sensors_value`, `sensors_unit`
 
-⚙️ Parameter Format Examples
-Format
+---
 
-Description
+## ⚙️ Parameter Format Examples
 
-Example
+| Format               | Description       | Example               |
+|----------------------|-------------------|------------------------|
+| `field_name`         | Simple extraction | `user_id`             |
+| `field[op:value]`    | With condition    | `age[>:18]`           |
+| `field[CAST:TYPE]`   | Type casting      | `price[CAST:NUMBER]`  |
+| `field1, field2`     | Multiple fields   | `name, email`         |
+| `field[op:val:LOGIC]`| Custom logic      | `status[=:active:OR]` |
 
-field_name
+**Supported Operators:**  
+`=`, `!=`, `>`, `<`, `>=`, `<=`, `LIKE`, `NOT LIKE`, `IN`, `NOT IN`, `BETWEEN`, `CONTAINS`, `IS NULL`, `IS NOT NULL`
 
-Simple extraction
+---
 
-user_id
+## 🔧 Technical Highlights
 
-field[op:value]
+- **Intelligent Field Disambiguation**  
+  Automatically detects duplicate field names and generates unique aliases.
 
-With condition
+- **Performance-Tuned Engine**  
+  Optional Modin acceleration and schema caching for large datasets.
 
-age[>:18]
+- **Robust SQL Generation**  
+  Handles deeply nested arrays, parent-child relationships, and aliasing.
 
-field[CAST:TYPE]
+- **Security-First Design**  
+  Built-in input sanitization and best practices to prevent SQL injection.
 
-Type casting
+---
 
-price[CAST:NUMBER]
+## 🤝 Contributing
 
-field1, field2
+We welcome contributions!  
+Please refer to the [Contributing Guide](CONTRIBUTING.md) for setup instructions, testing, and pull request guidelines.
 
-Multiple fields
+---
 
-name, email
+## 📝 License
 
-field[op:val:LOGIC]
+This project is licensed under the MIT License.  
+See the [LICENSE](LICENSE) file for details.
 
-Custom logic
-
-status[=:active:OR]
-
-Supported Operators: =, !=, >, <, >=, <=, LIKE, NOT LIKE, IN, NOT IN, BETWEEN, CONTAINS, IS NULL, IS NOT NULL.
-
-🔧 Technical Highlights
-Intelligent Field Disambiguation: The core engine automatically detects fields with the same name in different parts of the JSON structure and generates unique, context-aware aliases to prevent conflicts in your final query.
-
-Performance-Tuned Engine: Features an optional high-performance mode with Modin acceleration for processing large datasets, alongside intelligent schema caching to dramatically speed up repeated analyses.
-
-Robust Engine: The SQL generation engine correctly handles deeply nested arrays, parent-child relationships, and context-aware aliasing to produce optimized and readable queries.
-
-Security-First Design: Includes built-in input sanitization to prevent SQL injection and follows security best practices, ensuring that the generated code is safe for production environments.
-
-🤝 Contributing
-Contributions are welcome! Please see our Contributing Guide for details on setting up a development environment, running tests, and submitting pull requests.
-
-📝 License
-This project is licensed under the MIT License. See the LICENSE file for details.
+---
