@@ -1498,60 +1498,85 @@ def main():
             st.sidebar.success("✅ Cache cleared! Refreshing...")
             st.rerun()
         
-        # Force fresh content rendering
-        st.empty()  # Clear any cached content
-        
-        st.markdown('<h1 class="main-header">❄️ Dynamic JSON-to-SQL Analyzer & Genrator for Snowflake</h1>', unsafe_allow_html=True)
-        
-        # Initialize user counter
-        if 'user_counter' not in st.session_state:
-            st.session_state.user_counter = SessionUserCounter()
-        
-        user_counter = st.session_state.user_counter
-        
-        # Display live user counter
-        render_live_user_counter(user_counter)
-        
-        json_data = get_json_data_from_sidebar()
-        
-        # Add usage analytics to sidebar
-        render_usage_analytics_sidebar(user_counter)
-        
-        # Auto-refresh for live counter updates (every 30 seconds)
-        if 'last_counter_refresh' not in st.session_state:
-            st.session_state.last_counter_refresh = time.time()
-        
-        # Check if 30 seconds have passed since last refresh
-        if time.time() - st.session_state.last_counter_refresh > 30:
-            st.session_state.last_counter_refresh = time.time()
-            st.rerun()  # Trigger refresh for live updates
-        if render_performance_info:
-            render_performance_info()
-
-        main_tab1, main_tab2 = st.tabs(["🐍 **Python Mode (Instant SQL Generation)**", "🏔️ **Snowflake Mode (Live Analysis)**"])
-
-        with main_tab1:
-            # Track Python mode usage
-            user_counter.track_user_activity('python')
+        # Enhanced debugging section
+        with st.sidebar.expander("🔧 Debug Information", expanded=False):
+            st.write("**Session State Keys:**")
+            debug_keys = [k for k in st.session_state.keys() if 'user' in k.lower() or 'global' in k.lower()]
+            for key in debug_keys:
+                st.write(f"- {key}: {type(st.session_state.get(key, 'None'))}")
             
-            # Show Python mode activity
-            counts = user_counter.get_live_counts()
-            if counts['python_active'] > 0:
-                st.info(f"👥 {counts['python_active']} users currently using Python mode")
+            if 'global_user_stats' in st.session_state:
+                stats = st.session_state.global_user_stats
+                st.write(f"**Python users:** {len(stats.get('python_mode_users', {}))}")
+                st.write(f"**Snowflake users:** {len(stats.get('snowflake_mode_users', {}))}")
+        
+        st.markdown('<h1 class="main-header">❄️ Dynamic JSON-to-SQL Analyzer & Generator for Snowflake</h1>', unsafe_allow_html=True)
+        
+        # Initialize user counter with error handling
+        try:
+            if 'user_counter' not in st.session_state:
+                st.session_state.user_counter = SessionUserCounter()
             
-            st.markdown('<h2 class="section-header">🐍 SQL Generator from Sample JSON</h2>', unsafe_allow_html=True)
+            user_counter = st.session_state.user_counter
+            
+            # Force counter display - this should always show
+            st.markdown("### 📊 Live Usage Dashboard")
+            render_live_user_counter(user_counter)
+            
+        except Exception as e:
+            st.error(f"User counter initialization error: {e}")
+            # Create a fallback counter display
             st.markdown("""
-            <div class="feature-box">
-                <p>Analyze your sample JSON structure and instantly generate a portable SQL query. Perfect for development, testing, and creating shareable scripts.</p>
-                <ul>
-                    <li>✅ <strong>Instant SQL Generation</strong> from the JSON you provide.</li>
-                    <li>🧠 <strong>Smart Field Disambiguation</strong> for handling duplicate field names.</li>
-                    <li>📋 <strong>Export to Multiple Formats</strong> like Python, dbt, and Jupyter.</li>
-                </ul>
+            <div style="background: #ffebee; padding: 1rem; border-radius: 8px; border: 2px solid #f44336; margin: 1rem 0; text-align: center;">
+                <h5 style="color: #d32f2f;">⚠️ Live User Counter - Initialization Error</h5>
+                <p style="margin-bottom: 0;">Counter temporarily unavailable. Please refresh the page.</p>
             </div>
             """, unsafe_allow_html=True)
+        
+        # Get JSON data
+        json_data = get_json_data_from_sidebar()
+        
+        # Add usage analytics to sidebar with error handling
+        try:
+            if 'user_counter' in st.session_state:
+                render_usage_analytics_sidebar(st.session_state.user_counter)
+        except Exception as e:
+            st.sidebar.error(f"Analytics error: {e}")
+        
+        # Handle auto-refresh
+        handle_auto_refresh()
+        
+        # Performance info
+        if 'render_performance_info' in globals() and render_performance_info:
+            render_performance_info()
+
+       # Main tabs
+       main_tab1, main_tab2 = st.tabs(["🐍 **Python Mode (Instant SQL Generation)**", "🏔️ **Snowflake Mode (Live Analysis)**"])
+
+        with main_tab1:
+            try:
+                # Track Python mode usage
+                if 'user_counter' in st.session_state:
+                    st.session_state.user_counter.track_user_activity('python')
+                
+                # Show Python mode activity
+                if 'user_counter' in st.session_state:
+                    counts = st.session_state.user_counter.get_live_counts()
+                    if counts['python_active'] > 0:
+                        st.info(f"👥 {counts['python_active']} users currently using Python mode")
+                    else:
+                        st.info("👤 You are the first user in Python mode!")
+                
+                # Rest of Python mode UI...
+                st.markdown('<h2 class="section-header">🐍 SQL Generator from Sample JSON</h2>', unsafe_allow_html=True)
+                st.markdown("""
+                <div class="feature-box">
+                    <p>Analyze your sample JSON structure and instantly generate a portable SQL query. Perfect for development, testing, and creating shareable scripts.</p>
+                </div>
+                """, unsafe_allow_html=True)
 
             if json_data:
+                st.success("✅ JSON data loaded - ready for analysis!")
                 temp_schema, disambiguation_info = render_enhanced_disambiguation_info(json_data)
                 
                 st.markdown("### 📝 Query Configuration")
@@ -1702,16 +1727,21 @@ def main():
                 st.info("👆 Provide JSON data via the sidebar to begin.")
 
         with main_tab2:
-            # Track Snowflake mode usage
-            user_counter.track_user_activity('snowflake')
+            try:
+                # Track Snowflake mode usage
+                if 'user_counter' in st.session_state:
+                    st.session_state.user_counter.track_user_activity('snowflake')
+                
+                # Show Snowflake mode activity
+                if 'user_counter' in st.session_state:
+                    counts = st.session_state.user_counter.get_live_counts()
+                    if counts['snowflake_active'] > 0:
+                        st.info(f"👥 {counts['snowflake_active']} users currently using Snowflake mode")
+                    else:
+                        st.info("👤 You are the first user in Snowflake mode!")
             
-            # Show Snowflake mode activity
-            counts = user_counter.get_live_counts()
-            if counts['snowflake_active'] > 0:
-                st.info(f"👥 {counts['snowflake_active']} users currently using Snowflake mode")
-            
-            st.markdown('<h2 class="section-header">❄️  Snowflake Database Connection</h2>', unsafe_allow_html=True)
-            st.markdown("""<div class="feature-box"><p>Choose the connection mode that best fits your needs. Enhanced Snowflake UI now matches Python mode experience!</p></div>""", unsafe_allow_html=True)
+            st.markdown('<h2 class="section-header">❄️ Snowflake Database Connection</h2>', unsafe_allow_html=True)
+                st.markdown("""<div class="feature-box"><p>Connect to your Snowflake database for live JSON analysis.</p></div>""", unsafe_allow_html=True)
             
             # Force fresh rendering of mode descriptions
             col_mode1, col_mode2 = st.columns(2)
@@ -1724,7 +1754,6 @@ def main():
 - 💾 Good for small to medium datasets""")
             with col_mode2: 
                 st.markdown("""**⚡ Enhanced Mode:**
-- 🛡️ **Fixed session context management**
 - 🚀 **Modin acceleration**
 - 📊 **Real-time performance tracking**
 - 🏷️ Smart table name resolution""")
