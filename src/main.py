@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 import logging
 import os
 import random
+import uuid
+import time
 
 try:
     from python_sql_generator import generate_sql_from_json_data
@@ -65,6 +67,128 @@ except ImportError as e:
     config = Config()
 
 logger = logging.getLogger(__name__)
+
+# ==============================================================================
+# USER COUNTER CLASS - Added for live usage tracking
+# ==============================================================================
+
+class SessionUserCounter:
+    """Simple session-based user counter using Streamlit session state"""
+    
+    def __init__(self):
+        if 'global_user_stats' not in st.session_state:
+            st.session_state.global_user_stats = {
+                'python_mode_users': set(),
+                'snowflake_mode_users': set(),
+                'last_cleanup': datetime.now()
+            }
+    
+    def track_user_activity(self, mode: str):
+        """Track user activity in specified mode"""
+        if 'user_session_id' not in st.session_state:
+            st.session_state.user_session_id = str(uuid.uuid4())
+        
+        user_id = st.session_state.user_session_id
+        current_time = datetime.now()
+        
+        # Clean up old sessions (older than 30 minutes)
+        self._cleanup_old_sessions()
+        
+        # Add user to active set with timestamp
+        if mode == 'python':
+            st.session_state.global_user_stats['python_mode_users'].add((user_id, current_time))
+        elif mode == 'snowflake':
+            st.session_state.global_user_stats['snowflake_mode_users'].add((user_id, current_time))
+    
+    def _cleanup_old_sessions(self):
+        """Remove sessions older than 30 minutes"""
+        cutoff_time = datetime.now() - timedelta(minutes=30)
+        stats = st.session_state.global_user_stats
+        
+        # Clean python users
+        stats['python_mode_users'] = {
+            (uid, timestamp) for uid, timestamp in stats['python_mode_users'] 
+            if timestamp > cutoff_time
+        }
+        
+        # Clean snowflake users
+        stats['snowflake_mode_users'] = {
+            (uid, timestamp) for uid, timestamp in stats['snowflake_mode_users'] 
+            if timestamp > cutoff_time
+        }
+        
+        stats['last_cleanup'] = datetime.now()
+    
+    def get_live_counts(self) -> Dict[str, int]:
+        """Get current live user counts"""
+        self._cleanup_old_sessions()
+        stats = st.session_state.global_user_stats
+        
+        return {
+            'python_active': len(stats['python_mode_users']),
+            'snowflake_active': len(stats['snowflake_mode_users']),
+            'total_active': len(stats['python_mode_users']) + len(stats['snowflake_mode_users'])
+        }
+
+def render_live_user_counter(counter_instance, current_mode: str = None):
+    """Render live user counter in the UI"""
+    
+    # Track current user's activity
+    if current_mode:
+        counter_instance.track_user_activity(current_mode)
+    
+    # Get live counts
+    counts = counter_instance.get_live_counts()
+    
+    # Render counter UI
+    st.markdown(f"""
+    <div style="background: linear-gradient(145deg, #f8f9fa, #ffffff); padding: 1rem; border-radius: 8px; border: 2px solid #e9ecef; margin: 1rem 0; text-align: center;">
+        <h5 style="color: #1976d2; margin-bottom: 1rem;">
+            <span style="display: inline-block; width: 8px; height: 8px; background: #4caf50; border-radius: 50%; margin-right: 5px; animation: pulse 2s infinite;"></span>Live User Activity
+        </h5>
+        <div>
+            <span style="display: inline-block; margin: 0 1rem; padding: 0.5rem 1rem; background: linear-gradient(145deg, #e3f2fd, #ffffff); border-radius: 6px; border: 1px solid #64b5f6;">
+                🐍 <strong>{counts['python_active']}</strong> Python Mode
+            </span>
+            <span style="display: inline-block; margin: 0 1rem; padding: 0.5rem 1rem; background: linear-gradient(145deg, #e3f2fd, #ffffff); border-radius: 6px; border: 1px solid #64b5f6;">
+                ❄️ <strong>{counts['snowflake_active']}</strong> Snowflake Mode
+            </span>
+            <span style="display: inline-block; margin: 0 1rem; padding: 0.5rem 1rem; background: linear-gradient(145deg, #e3f2fd, #ffffff); border-radius: 6px; border: 1px solid #64b5f6;">
+                👥 <strong>{counts['total_active']}</strong> Total Active
+            </span>
+        </div>
+        <p style="font-size: 0.8rem; color: #6c757d; margin-top: 0.5rem; margin-bottom: 0;">
+            Active users in the last 30 minutes • Updates automatically
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+def render_usage_analytics_sidebar(counter_instance):
+    """Render usage analytics in sidebar"""
+    with st.sidebar.expander("📊 Live Usage Analytics", expanded=False):
+        counts = counter_instance.get_live_counts()
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("🐍 Python", counts['python_active'])
+        with col2:
+            st.metric("❄️ Snowflake", counts['snowflake_active'])
+        
+        st.caption(f"Total: {counts['total_active']} active users")
+        
+        # Show percentage breakdown
+        if counts['total_active'] > 0:
+            python_pct = (counts['python_active'] / counts['total_active']) * 100
+            snowflake_pct = (counts['snowflake_active'] / counts['total_active']) * 100
+            st.markdown(f"""
+            **Usage Distribution:**
+            - Python Mode: {python_pct:.1f}%
+            - Snowflake Mode: {snowflake_pct:.1f}%
+            """)
+
+# ==============================================================================
+# END OF USER COUNTER ADDITION
+# ==============================================================================
 
 st.set_page_config(
     page_title="JSON-to-SQL Analyzer & Generator 🚀",
@@ -148,6 +272,36 @@ st.markdown("""
         border-radius: 6px;
         border: 1px solid #81c784;
         margin: 0.5rem 0;
+    }
+    .user-counter-container {
+        background: linear-gradient(145deg, #f8f9fa, #ffffff);
+        padding: 1rem;
+        border-radius: 8px;
+        border: 2px solid #e9ecef;
+        margin: 1rem 0;
+        text-align: center;
+    }
+    .counter-metric {
+        display: inline-block;
+        margin: 0 1rem;
+        padding: 0.5rem 1rem;
+        background: linear-gradient(145deg, #e3f2fd, #ffffff);
+        border-radius: 6px;
+        border: 1px solid #64b5f6;
+    }
+    .counter-live-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        background: #4caf50;
+        border-radius: 50%;
+        margin-right: 5px;
+        animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1222,13 +1376,43 @@ def main():
         st.empty()  # Clear any cached content
         
         st.markdown('<h1 class="main-header">❄️ Dynamic JSON-to-SQL Analyzer & Genrator for Snowflake</h1>', unsafe_allow_html=True)
+        
+        # Initialize user counter
+        if 'user_counter' not in st.session_state:
+            st.session_state.user_counter = SessionUserCounter()
+        
+        user_counter = st.session_state.user_counter
+        
+        # Display live user counter
+        render_live_user_counter(user_counter)
+        
         json_data = get_json_data_from_sidebar()
+        
+        # Add usage analytics to sidebar
+        render_usage_analytics_sidebar(user_counter)
+        
+        # Auto-refresh for live counter updates (every 30 seconds)
+        if 'last_counter_refresh' not in st.session_state:
+            st.session_state.last_counter_refresh = time.time()
+        
+        # Check if 30 seconds have passed since last refresh
+        if time.time() - st.session_state.last_counter_refresh > 30:
+            st.session_state.last_counter_refresh = time.time()
+            st.rerun()  # Trigger refresh for live updates
         if render_performance_info:
             render_performance_info()
 
         main_tab1, main_tab2 = st.tabs(["🐍 **Python Mode (Instant SQL Generation)**", "🏔️ **Snowflake Mode (Live Analysis)**"])
 
         with main_tab1:
+            # Track Python mode usage
+            user_counter.track_user_activity('python')
+            
+            # Show Python mode activity
+            counts = user_counter.get_live_counts()
+            if counts['python_active'] > 0:
+                st.info(f"👥 {counts['python_active']} users currently using Python mode")
+            
             st.markdown('<h2 class="section-header">🐍 SQL Generator from Sample JSON</h2>', unsafe_allow_html=True)
             st.markdown("""
             <div class="feature-box">
@@ -1392,6 +1576,14 @@ def main():
                 st.info("👆 Provide JSON data via the sidebar to begin.")
 
         with main_tab2:
+            # Track Snowflake mode usage
+            user_counter.track_user_activity('snowflake')
+            
+            # Show Snowflake mode activity
+            counts = user_counter.get_live_counts()
+            if counts['snowflake_active'] > 0:
+                st.info(f"👥 {counts['snowflake_active']} users currently using Snowflake mode")
+            
             st.markdown('<h2 class="section-header">❄️  Snowflake Database Connection</h2>', unsafe_allow_html=True)
             st.markdown("""<div class="feature-box"><p>Choose the connection mode that best fits your needs. Enhanced Snowflake UI now matches Python mode experience!</p></div>""", unsafe_allow_html=True)
             
