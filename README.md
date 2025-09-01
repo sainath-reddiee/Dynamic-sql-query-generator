@@ -4,21 +4,10 @@ Transform complex JSON into powerful, production-ready Snowflake SQL with an int
 
 ---
 
-## 🚀 Live Demo & Features
+## 🚀 Live Demo
 
-Experience the full power of the application:
-
-- **Interactively Analyze JSON**  
-  Upload or paste your JSON and see a complete structural analysis in real-time.
-
-- **Generate SQL Dynamically**  
-  Define query parameters via the UI and watch SQL code generate instantly.
-
-- **Connect to Snowflake**  
-  Securely connect to your Snowflake instance for live data analysis and query execution.
-
-- **Explore Smart Suggestions**  
-  Get intelligent, context-aware field suggestions based on your actual schema.
+Try it now: [Dynamic SQL Generator v3.0](https://sainath-reddie.streamlit.app/)  
+Experience real-time JSON analysis and SQL generation in your browser.
 
 ---
 
@@ -26,16 +15,12 @@ Experience the full power of the application:
 
 ### 1. 🐍 Python Mode (Rapid Prototyping)
 
-Ideal for developers working with sample JSON data.
-
 - Paste or upload JSON in the sidebar.
 - Instantly parse structure and detect ambiguous fields.
 - Select fields and conditions with smart suggestions.
 - Generate SQL and export as `.sql`, dbt model, or Jupyter Notebook.
 
 ### 2. 🏔️ Snowflake Mode (Live Database Analysis)
-
-Perfect for analysts working with live, large-scale data.
 
 - Securely connect to Snowflake (Standard or Enhanced mode).
 - Sample actual tables to build accurate schema.
@@ -48,7 +33,6 @@ Perfect for analysts working with live, large-scale data.
 
 ### 1. E-commerce Analytics
 
-**Input JSON:**
 ```json
 {
   "order_id": "ORD-123",
@@ -64,7 +48,6 @@ Perfect for analysts working with live, large-scale data.
 
 ### 2. API Response Processing
 
-**Input JSON:**
 ```json
 {
   "user": {"profile": {"settings": {"theme": "dark"}}},
@@ -79,7 +62,6 @@ Perfect for analysts working with live, large-scale data.
 
 ### 3. IoT Data Analysis
 
-**Input JSON:**
 ```json
 {
   "device_id": "DEV-001",
