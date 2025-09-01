@@ -136,6 +136,30 @@ class SessionUserCounter:
             
         except Exception as e:
             st.error(f"Error during cleanup: {e}")
+    def handle_auto_refresh():
+    """Handle automatic refresh for live updates"""
+    try:
+        # Initialize refresh tracking
+        if 'last_counter_refresh' not in st.session_state:
+            st.session_state.last_counter_refresh = time.time()
+        
+        # Check if refresh is needed (every 30 seconds)
+        current_time = time.time()
+        time_since_refresh = current_time - st.session_state.last_counter_refresh
+        
+        # Add a visible countdown for debugging
+        seconds_until_refresh = max(0, 30 - int(time_since_refresh))
+        
+        if seconds_until_refresh > 0:
+            st.sidebar.caption(f"🔄 Next auto-refresh in: {seconds_until_refresh}s")
+        
+        # Trigger refresh if 30 seconds have passed
+        if time_since_refresh >= 30:
+            st.session_state.last_counter_refresh = current_time
+            st.rerun()
+            
+    except Exception as e:
+        st.sidebar.error(f"Auto-refresh error: {e}")
     
     def get_live_counts(self) -> Dict[str, int]:
         """Get current live user counts with error handling"""
