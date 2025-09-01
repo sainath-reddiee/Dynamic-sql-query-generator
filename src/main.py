@@ -677,28 +677,28 @@ def render_smart_json_analysis_ui(conn_manager):
         )
 
     with input_col2:
-                    json_column = st.text_input(
-                        "JSON Column Name* 📄",
-                        placeholder="json_data",
-                        key="sf_json_column",
-                        help="Name of the column containing JSON data"
-                    )
+        json_column = st.text_input(
+            "JSON Column Name* 📄",
+            placeholder="json_data",
+            key="sf_json_column",
+            help="Name of the column containing JSON data"
+        )
 
-                    execution_mode = st.radio(
-                        "Choose Action:", 
-                        ["🔍 Analyze Schema Only", "🚀 Analyze & Execute", "📋 Export for External Use"], 
-                        key="sf_execution_mode",
-                        help="Choose how to handle the database analysis"
-                    )
+        execution_mode = st.radio(
+            "Choose Action:", 
+            ["🔍 Analyze Schema Only", "🚀 Analyze & Execute", "📋 Export for External Use"], 
+            key="sf_execution_mode",
+            help="Choose how to handle the database analysis"
+        )
 
-                # Show export format selection when Export is chosen (matching Python mode)
-                if execution_mode == "📋 Export for External Use":
-                    export_format = st.selectbox(
-                        "Export Format:", 
-                        ["SQL File", "dbt Model", "Jupyter Notebook"], 
-                        key="sf_export_format",
-                        help="Choose the format for exporting your generated SQL"
-                    )
+    # Show export format selection when Export is chosen (matching Python mode)
+    if execution_mode == "📋 Export for External Use":
+        export_format = st.selectbox(
+            "Export Format:", 
+            ["SQL File", "dbt Model", "Jupyter Notebook"], 
+            key="sf_export_format",
+            help="Choose the format for exporting your generated SQL"
+        )
 
     # Field parsing debug for Snowflake mode
     if field_conditions:
@@ -1444,28 +1444,27 @@ def main():
                 st.info(f"👆 **Connect using {mode_text} mode above to unlock enhanced database operations.**")
         
         st.markdown("""
-    <div class="footer" style="max-width: 900px; margin: auto; padding: 2rem;">
-        <p style="text-align: center;">
-            <strong>🚀 Dynamic JSON-to-SQL Analyzer & Generator</strong> | Built with ❤️ using Streamlit
-        </p>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin-top: 1rem;">
-            <div style="text-align: left;">
-                <h4 style="color: #1976d2;">🐍 Python Mode</h4>
-                <p>Instant SQL generation<br/>Enhanced field parsing<br/>Debug multi-field support</p>
+        <div class="footer" style="max-width: 900px; margin: auto; padding: 2rem;">
+            <p style="text-align: center;">
+                <strong>🚀 Dynamic JSON-to-SQL Analyzer & Generator</strong> | Built with ❤️ using Streamlit
+            </p>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin-top: 1rem;">
+                <div style="text-align: left;">
+                    <h4 style="color: #1976d2;">🐍 Python Mode</h4>
+                    <p>Instant SQL generation<br/>Enhanced field parsing<br/>Debug multi-field support</p>
+                </div>
+                <div style="text-align: left;">
+                    <h4 style="color: #9c27b0;">🚀 Key Features</h4>
+                    <p>Fixed multi-field parsing<br/>Smart field disambiguation<br/>Enhanced debugging tools</p>
+                </div>
             </div>
-            <div style="text-align: left;">
-                <h4 style="color: #9c27b0;">🚀 Key Features</h4>
-                <p>Fixed multi-field parsing<br/>Smart field disambiguation<br/>Enhanced debugging tools</p>
-            </div>
+            <hr style="margin: 2rem 0; border: 1px solid #e9ecef;">
+            <p style="font-size: 0.9rem; text-align: center;">
+                <strong>⚡ Enhanced UI:</strong> Snowflake mode now matches Python mode experience<br/>
+                <strong>📋 Debug Tools:</strong> Field parsing analysis and column count verification
+            </p>
         </div>
-        <hr style="margin: 2rem 0; border: 1px solid #e9ecef;">
-        <p style="font-size: 0.9rem; text-align: center;">
-            <strong>⚡ Enhanced UI:</strong> Snowflake mode now matches Python mode experience<br/>
-            <strong>📋 Debug Tools:</strong> Field parsing analysis and column count verification
-        </p>
-    </div>
-""", unsafe_allow_html=True)
-
+        """, unsafe_allow_html=True)
 
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
