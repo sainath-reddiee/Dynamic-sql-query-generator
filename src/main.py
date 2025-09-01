@@ -73,118 +73,220 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 
 class SessionUserCounter:
-    """Simple session-based user counter using Streamlit session state"""
+    """Enhanced session-based user counter with improved reliability"""
     
     def __init__(self):
+        # Initialize global stats if not present
         if 'global_user_stats' not in st.session_state:
             st.session_state.global_user_stats = {
-                'python_mode_users': set(),
-                'snowflake_mode_users': set(),
-                'last_cleanup': datetime.now()
+                'python_mode_users': {},  # Changed to dict for better tracking
+                'snowflake_mode_users': {},  # Changed to dict for better tracking
+                'last_cleanup': datetime.now(),
+                'initialized': True
             }
-    
-    def track_user_activity(self, mode: str):
-        """Track user activity in specified mode"""
+        
+        # Generate unique session ID if not present
         if 'user_session_id' not in st.session_state:
             st.session_state.user_session_id = str(uuid.uuid4())
-        
-        user_id = st.session_state.user_session_id
-        current_time = datetime.now()
-        
-        # Clean up old sessions (older than 30 minutes)
-        self._cleanup_old_sessions()
-        
-        # Add user to active set with timestamp
-        if mode == 'python':
-            st.session_state.global_user_stats['python_mode_users'].add((user_id, current_time))
-        elif mode == 'snowflake':
-            st.session_state.global_user_stats['snowflake_mode_users'].add((user_id, current_time))
+            
+        # Initialize tracking timestamp
+        if 'session_start_time' not in st.session_state:
+            st.session_state.session_start_time = datetime.now()
+    
+    def track_user_activity(self, mode: str):
+        """Track user activity in specified mode with enhanced debugging"""
+        try:
+            user_id = st.session_state.user_session_id
+            current_time = datetime.now()
+            
+            # Clean up old sessions first
+            self._cleanup_old_sessions()
+            
+            # Track activity with timestamp
+            if mode == 'python':
+                st.session_state.global_user_stats['python_mode_users'][user_id] = current_time
+            elif mode == 'snowflake':
+                st.session_state.global_user_stats['snowflake_mode_users'][user_id] = current_time
+            
+            # Debug info (can be removed in production)
+            # st.sidebar.write(f"Debug: Tracking {mode} mode for user {user_id[:8]}...")
+            
+        except Exception as e:
+            st.error(f"Error tracking user activity: {e}")
     
     def _cleanup_old_sessions(self):
         """Remove sessions older than 30 minutes"""
-        cutoff_time = datetime.now() - timedelta(minutes=30)
-        stats = st.session_state.global_user_stats
-        
-        # Clean python users
-        stats['python_mode_users'] = {
-            (uid, timestamp) for uid, timestamp in stats['python_mode_users'] 
-            if timestamp > cutoff_time
-        }
-        
-        # Clean snowflake users
-        stats['snowflake_mode_users'] = {
-            (uid, timestamp) for uid, timestamp in stats['snowflake_mode_users'] 
-            if timestamp > cutoff_time
-        }
-        
-        stats['last_cleanup'] = datetime.now()
+        try:
+            cutoff_time = datetime.now() - timedelta(minutes=30)
+            stats = st.session_state.global_user_stats
+            
+            # Clean python users (using dict comprehension)
+            stats['python_mode_users'] = {
+                uid: timestamp for uid, timestamp in stats['python_mode_users'].items() 
+                if timestamp > cutoff_time
+            }
+            
+            # Clean snowflake users
+            stats['snowflake_mode_users'] = {
+                uid: timestamp for uid, timestamp in stats['snowflake_mode_users'].items() 
+                if timestamp > cutoff_time
+            }
+            
+            stats['last_cleanup'] = datetime.now()
+            
+        except Exception as e:
+            st.error(f"Error during cleanup: {e}")
     
     def get_live_counts(self) -> Dict[str, int]:
-        """Get current live user counts"""
-        self._cleanup_old_sessions()
-        stats = st.session_state.global_user_stats
-        
-        return {
-            'python_active': len(stats['python_mode_users']),
-            'snowflake_active': len(stats['snowflake_mode_users']),
-            'total_active': len(stats['python_mode_users']) + len(stats['snowflake_mode_users'])
-        }
-
+        """Get current live user counts with error handling"""
+        try:
+            self._cleanup_old_sessions()
+            stats = st.session_state.global_user_stats
+            
+            python_count = len(stats.get('python_mode_users', {}))
+            snowflake_count = len(stats.get('snowflake_mode_users', {}))
+            
+            return {
+                'python_active': python_count,
+                'snowflake_active': snowflake_count,
+                'total_active': python_count + snowflake_count
+            }
+        except Exception as e:
+            st.error(f"Error getting live counts: {e}")
+            return {'python_active': 0, 'snowflake_active': 0, 'total_active': 0}
+            
 def render_live_user_counter(counter_instance, current_mode: str = None):
-    """Render live user counter in the UI"""
+    """Render live user counter with enhanced debugging and error handling"""
     
-    # Track current user's activity
-    if current_mode:
-        counter_instance.track_user_activity(current_mode)
-    
-    # Get live counts
-    counts = counter_instance.get_live_counts()
-    
-    # Render counter UI
-    st.markdown(f"""
-    <div style="background: linear-gradient(145deg, #f8f9fa, #ffffff); padding: 1rem; border-radius: 8px; border: 2px solid #e9ecef; margin: 1rem 0; text-align: center;">
-        <h5 style="color: #1976d2; margin-bottom: 1rem;">
-            <span style="display: inline-block; width: 8px; height: 8px; background: #4caf50; border-radius: 50%; margin-right: 5px; animation: pulse 2s infinite;"></span>Live User Activity
-        </h5>
-        <div>
-            <span style="display: inline-block; margin: 0 1rem; padding: 0.5rem 1rem; background: linear-gradient(145deg, #e3f2fd, #ffffff); border-radius: 6px; border: 1px solid #64b5f6;">
-                🐍 <strong>{counts['python_active']}</strong> Python Mode
-            </span>
-            <span style="display: inline-block; margin: 0 1rem; padding: 0.5rem 1rem; background: linear-gradient(145deg, #e3f2fd, #ffffff); border-radius: 6px; border: 1px solid #64b5f6;">
-                ❄️ <strong>{counts['snowflake_active']}</strong> Snowflake Mode
-            </span>
-            <span style="display: inline-block; margin: 0 1rem; padding: 0.5rem 1rem; background: linear-gradient(145deg, #e3f2fd, #ffffff); border-radius: 6px; border: 1px solid #64b5f6;">
-                👥 <strong>{counts['total_active']}</strong> Total Active
-            </span>
-        </div>
-        <p style="font-size: 0.8rem; color: #6c757d; margin-top: 0.5rem; margin-bottom: 0;">
-            Active users in the last 30 minutes • Updates automatically
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-def render_usage_analytics_sidebar(counter_instance):
-    """Render usage analytics in sidebar"""
-    with st.sidebar.expander("📊 Live Usage Analytics", expanded=False):
+    try:
+        # Track current user's activity
+        if current_mode:
+            counter_instance.track_user_activity(current_mode)
+        
+        # Get live counts
         counts = counter_instance.get_live_counts()
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("🐍 Python", counts['python_active'])
-        with col2:
-            st.metric("❄️ Snowflake", counts['snowflake_active'])
+        # Force refresh the counts every time
+        if counts['total_active'] == 0:
+            # Add some debugging info
+            st.sidebar.write("Debug: No active users detected")
         
-        st.caption(f"Total: {counts['total_active']} active users")
+        # Enhanced CSS with animation
+        st.markdown("""
+        <style>
+        .live-counter-container {
+            background: linear-gradient(145deg, #f8f9fa, #ffffff);
+            padding: 1.5rem;
+            border-radius: 12px;
+            border: 2px solid #e9ecef;
+            margin: 1rem 0;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .counter-pulse {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #4caf50;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse-animation 2s infinite;
+        }
+        @keyframes pulse-animation {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.1); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        .counter-metric {
+            display: inline-block;
+            margin: 0 0.8rem;
+            padding: 0.8rem 1.2rem;
+            background: linear-gradient(145deg, #e3f2fd, #ffffff);
+            border-radius: 8px;
+            border: 1px solid #64b5f6;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease;
+        }
+        .counter-metric:hover {
+            transform: translateY(-2px);
+        }
+        </style>
+        """, unsafe_allow_html=True)
         
-        # Show percentage breakdown
-        if counts['total_active'] > 0:
-            python_pct = (counts['python_active'] / counts['total_active']) * 100
-            snowflake_pct = (counts['snowflake_active'] / counts['total_active']) * 100
-            st.markdown(f"""
-            **Usage Distribution:**
-            - Python Mode: {python_pct:.1f}%
-            - Snowflake Mode: {snowflake_pct:.1f}%
-            """)
+        # Render counter UI with enhanced styling
+        st.markdown(f"""
+        <div class="live-counter-container">
+            <h5 style="color: #1976d2; margin-bottom: 1.2rem; font-weight: 600;">
+                <span class="counter-pulse"></span>Live User Activity Dashboard
+            </h5>
+            <div>
+                <span class="counter-metric">
+                    🐍 <strong style="color: #2e7d32;">{counts['python_active']}</strong> Python Mode
+                </span>
+                <span class="counter-metric">
+                    ❄️ <strong style="color: #1565c0;">{counts['snowflake_active']}</strong> Snowflake Mode
+                </span>
+                <span class="counter-metric">
+                    👥 <strong style="color: #d32f2f;">{counts['total_active']}</strong> Total Active
+                </span>
+            </div>
+            <p style="font-size: 0.85rem; color: #6c757d; margin-top: 1rem; margin-bottom: 0;">
+                <strong>Real-time tracking:</strong> Active users in the last 30 minutes • Auto-refreshes every 30 seconds
+            </p>
+            <p style="font-size: 0.75rem; color: #9e9e9e; margin-top: 0.5rem; margin-bottom: 0;">
+                Session ID: {st.session_state.get('user_session_id', 'Not initialized')[:8]}... | 
+                Last update: {datetime.now().strftime('%H:%M:%S')}
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    except Exception as e:
+        st.error(f"Error rendering user counter: {e}")
+        # Fallback static display
+        st.markdown("""
+        <div class="live-counter-container">
+            <h5 style="color: #1976d2;">⚠️ Live User Counter (Fallback Mode)</h5>
+            <p>Real-time tracking temporarily unavailable</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+def render_usage_analytics_sidebar(counter_instance):
+    """Enhanced sidebar analytics with debugging"""
+    try:
+        with st.sidebar.expander("📊 Live Usage Analytics", expanded=True):  # Changed to expanded=True for debugging
+            counts = counter_instance.get_live_counts()
+            
+            # Show debug info
+            st.write("**Debug Info:**")
+            st.write(f"Session ID: {st.session_state.get('user_session_id', 'None')[:8]}...")
+            st.write(f"Last cleanup: {st.session_state.get('global_user_stats', {}).get('last_cleanup', 'None')}")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("🐍 Python", counts['python_active'])
+            with col2:
+                st.metric("❄️ Snowflake", counts['snowflake_active'])
+            
+            st.metric("👥 Total Active", counts['total_active'])
+            
+            # Show percentage breakdown
+            if counts['total_active'] > 0:
+                python_pct = (counts['python_active'] / counts['total_active']) * 100
+                snowflake_pct = (counts['snowflake_active'] / counts['total_active']) * 100
+                st.markdown(f"""
+                **Usage Distribution:**
+                - Python Mode: {python_pct:.1f}%
+                - Snowflake Mode: {snowflake_pct:.1f}%
+                """)
+            else:
+                st.info("No active users detected")
+                
+            # Manual refresh button for testing
+            if st.button("🔄 Manual Refresh", key="manual_refresh_counter"):
+                st.rerun()
+                
+    except Exception as e:
+        st.sidebar.error(f"Analytics error: {e}")
 
 # ==============================================================================
 # END OF USER COUNTER ADDITION
