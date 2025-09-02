@@ -1,411 +1,995 @@
-"""
-Pure Python implementation of dynamic SQL generation
-Replicates the logic from your Snowflake stored procedure
-"""
 import json
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import re
 import logging
 
 logger = logging.getLogger(__name__)
 
+
 class PythonSQLGenerator:
     def __init__(self):
-        self.type_mapping = {
-            'str': 'VARCHAR',
-            'int': 'NUMBER',
-            'float': 'NUMBER',
-            'bool': 'BOOLEAN',
-            'dict': 'OBJECT',
-            'list': 'ARRAY',
-            'NoneType': 'VARIANT'
-        }
-
-    def sanitize_input(self, value: str) -> str:
-        """Sanitize input strings to prevent SQL injection"""
-        if not isinstance(value, str):
-            return str(value)
-        # Replace quotes and remove dangerous characters
-        value = value.replace("'", "''").replace('"', '""')
-        value = re.sub(r'[;\x00-\x1f]', '', value)
-        return value
-
+        self.flatten_counter = 0
+        self.array_hierarchy = []
+        self.flatten_alias_map = {}
+        self.multi_level_fields = {}  # Track fields that appear at multiple levels
+        self.path_usage_tracker = {}
+    
     def analyze_json_for_sql(self, json_obj: Any, parent_path: str = "") -> Dict[str, Dict]:
-        """Analyze JSON and create SQL-ready schema - matches your Snowflake procedure logic"""
         schema = {}
-
-        def traverse(obj: Any, path: str = "", array_hierarchy: List[str] = [], depth: int = 0):
-            if depth > 10:  # Prevent infinite recursion
-                return
-
+        field_name_tracker = {}  # Track where each field name appears
+        
+        def traverse_json(obj: Any, path: str = "", depth: int = 0, in_array_context: List[str] = []):
             if isinstance(obj, dict):
                 for key, value in obj.items():
                     new_path = f"{path}.{key}" if path else key
                     current_type = type(value).__name__
-
-                    # Enhanced schema with metadata (matching your procedure)
+                    
+                    # Track field name occurrences for multi-level detection
+                    if key not in field_name_tracker:
+                        field_name_tracker[key] = []
+                    field_name_tracker[key].append({
+                        'full_path': new_path,
+                        'depth': depth,
+                        'in_array': len(in_array_context) > 0,
+                        'array_context': in_array_context.copy(),
+                        'parent_path': path,
+                        'context_description': self._get_context_description(new_path, in_array_context)
+                    })
+                    
+                    is_queryable = not isinstance(value, (dict, list)) or (
+                        isinstance(value, list) and len(value) > 0 and not isinstance(value[0], (dict, list))
+                    )
+                    
                     schema_entry = {
                         "type": current_type,
-                        "snowflake_type": self.type_mapping.get(current_type, 'VARIANT'),
-                        "array_hierarchy": array_hierarchy.copy(),
-                        "depth": len(new_path.split('.')),
+                        "snowflake_type": self._get_snowflake_type(current_type),
+                        "is_queryable": is_queryable,
+                        "is_array": isinstance(value, list),
+                        "is_nested_object": isinstance(value, dict),
+                        "array_context": in_array_context.copy(),
+                        "depth": depth,
                         "full_path": new_path,
-                        "parent_path": path,
-                        "is_queryable": not isinstance(value, (dict, list)),
-                        "sample_value": str(value)[:100] if value is not None else "NULL"
+                        "field_name": key,
+                        "parent_context": path.split('.')[-1] if path else 'root',
+                        "sample_value": str(value)[:100] if len(str(value)) <= 100 else str(value)[:100] + "...",
+                        "context_description": self._get_context_description(new_path, in_array_context)
                     }
-
-                    # Handle type conflicts (matching your procedure logic)
-                    if new_path in schema:
-                        existing_type = schema[new_path]["type"]
-                        if existing_type != current_type:
-                            if current_type in ['str', 'int', 'float'] and existing_type == 'NoneType':
-                                schema[new_path]["type"] = current_type
-                                schema[new_path]["snowflake_type"] = self.type_mapping.get(current_type, 'VARIANT')
-                            elif existing_type in ['str', 'int', 'float'] and current_type == 'NoneType':
-                                pass  # Keep existing
-                            else:
-                                schema[new_path]["type"] = "variant"
-                                schema[new_path]["snowflake_type"] = "VARIANT"
-                    else:
-                        schema[new_path] = schema_entry
-
-                    traverse(value, new_path, array_hierarchy, depth + 1)
-
+                    
+                    schema[new_path] = schema_entry
+                    
+                    if isinstance(value, dict):
+                        traverse_json(value, new_path, depth + 1, in_array_context)
+                    elif isinstance(value, list) and value:
+                        if isinstance(value[0], (dict, list)):
+                            new_array_context = in_array_context + [new_path]
+                            traverse_json(value[0], new_path, depth + 1, new_array_context)
+                        
             elif isinstance(obj, list) and obj:
-                # Add array info to schema
-                if path not in schema:
-                    schema[path] = {
-                        "type": "array",
-                        "snowflake_type": "ARRAY",
-                        "array_hierarchy": array_hierarchy.copy(),
-                        "depth": len(path.split('.')) if path else 0,
-                        "full_path": path,
-                        "parent_path": ".".join(path.split('.')[:-1]) if '.' in path else "",
-                        "is_queryable": True,
-                        "sample_value": f"Array with {len(obj)} items"
-                    }
-
-                new_hierarchy = array_hierarchy + [path]
-
-                # Process array elements (sample up to 3 like your procedure)
-                sample_size = min(len(obj), 3)
-                for i in range(sample_size):
-                    if isinstance(obj[i], (dict, list)):
-                        traverse(obj[i], path, new_hierarchy, depth + 1)
-                    else:
-                        schema[path]["item_type"] = type(obj[i]).__name__
-
-        traverse(json_obj, parent_path)
+                if isinstance(obj[0], (dict, list)):
+                    new_array_context = in_array_context + [path] if path else in_array_context
+                    traverse_json(obj[0], path, depth, new_array_context)
+        
+        traverse_json(json_obj, parent_path)
+        
+        # Generate multi-level field information
+        self.multi_level_fields = self._create_multi_level_field_map(field_name_tracker, schema)
+        
         return schema
-
-    def parse_field_conditions(self, conditions: str) -> List[Dict]:
-        """Parse field conditions - replicates your Snowflake procedure logic"""
-        if not conditions or not conditions.strip():
-            return []
-
-        result = []
-        fields = []
-        current_field = []
-        bracket_count = 0
-
-        # Parse comma-separated fields with bracket handling
-        for char in conditions:
-            if char == '[':
-                bracket_count += 1
-            elif char == ']':
-                bracket_count -= 1
-            elif char == ',' and bracket_count == 0:
-                fields.append(''.join(current_field).strip())
-                current_field = []
-                continue
-            current_field.append(char)
-
-        if current_field:
-            fields.append(''.join(current_field).strip())
-
-        for field in fields:
-            if not field:
-                continue
-
-            condition = {
-                'field': field,
-                'operator': 'IS NOT NULL',
-                'value': None,
-                'cast': None,
-                'logic_operator': 'AND'
-            }
-
-            # Parse conditions like: field[operator:value] or field[CAST:TYPE]
-            if '[' in field and ']' in field:
-                base_field = field[:field.index('[')].strip()
-                operator_value = field[field.index('[')+1:field.index(']')]
-                condition['field'] = base_field
-
-                # Handle multiple subconditions
-                subconditions = []
-                current = []
-                nested_count = 0
-
-                for char in operator_value:
-                    if char == ',' and nested_count == 0:
-                        subconditions.append(''.join(current).strip())
-                        current = []
-                    else:
-                        if char == '(':
-                            nested_count += 1
-                        elif char == ')':
-                            nested_count -= 1
-                        current.append(char)
-
-                if current:
-                    subconditions.append(''.join(current).strip())
-
-                for subcond in subconditions:
-                    parts = [p.strip() for p in subcond.split(':')]
-
-                    if len(parts) >= 2:
-                        if parts[0].upper() == 'CAST':
-                            condition['cast'] = parts[1].upper()
-                        else:
-                            condition['operator'] = parts[0].upper()
-                            if parts[0].upper() in ('IN', 'NOT IN'):
-                                values = [v.strip() for v in parts[1].split('|')]
-                                condition['value'] = values
-                            elif parts[0].upper() == 'BETWEEN':
-                                values = [v.strip() for v in parts[1].split('|')]
-                                condition['value'] = values
-                            else:
-                                condition['value'] = parts[1]
-
-                            if len(parts) > 2:
-                                condition['logic_operator'] = parts[2].upper()
-
-            result.append(condition)
-
-        return result
-
-    def find_field_in_schema(self, schema: Dict, target_field: str) -> List[Tuple[str, Dict]]:
-        """Find field in schema - matches your procedure's field resolution"""
-        matching_paths = []
-
-        # Find all paths that end with the target field
-        candidates = []
-        for path, info in schema.items():
-            path_parts = path.split('.')
-            if path_parts[-1] == target_field or path == target_field:
-                candidates.append((path, info))
-
-        if not candidates:
-            # Try partial matching
-            for path, info in schema.items():
-                if target_field.lower() in path.lower():
-                    candidates.append((path, info))
-
-        if not candidates:
-            return []
-
-        # Prefer shorter paths (less nested)
-        candidates.sort(key=lambda x: (x[1].get('depth', 0), len(x[1].get('array_hierarchy', []))))
-
-        return candidates[:1]  # Return best match
-
-    def build_array_flattening(self, array_paths: List[str], json_column: str) -> Tuple[str, Dict[str, str]]:
-        """Build LATERAL FLATTEN clauses - matches your procedure logic"""
-        flatten_clauses = []
-        array_aliases = {}
-
-        # Sort by depth to ensure proper nesting order
-        sorted_array_paths = sorted(set(array_paths), key=lambda x: (len(x.split('.')), x))
-
-        for idx, array_path in enumerate(sorted_array_paths):
-            alias = f"f{idx + 1}"
-            array_aliases[array_path] = alias
-
-            # Check for parent-child relationship
-            parent_path = None
-            for potential_parent in sorted_array_paths:
-                if (array_path.startswith(potential_parent + '.') and
-                    potential_parent != array_path and
-                    array_path.count('.') == potential_parent.count('.') + 1):
-                    parent_path = potential_parent
-                    break
-
-            if parent_path and parent_path in array_aliases:
-                parent_alias = array_aliases[parent_path]
-                relative_path = array_path[len(parent_path) + 1:]
-                safe_relative_path = self.sanitize_input(relative_path)
-                flatten_clauses.append(f", LATERAL FLATTEN(input => {parent_alias}.value:{safe_relative_path}) {alias}")
+    
+    def _get_context_description(self, full_path: str, array_context: List[str]) -> str:
+        """Generate human-readable context description"""
+        parts = full_path.split('.')
+        field_name = parts[-1]
+        
+        if not array_context:
+            if len(parts) == 1:
+                return f"{field_name}_company_level"
             else:
-                safe_array_path = self.sanitize_input(array_path)
-                flatten_clauses.append(f", LATERAL FLATTEN(input => {json_column}:{safe_array_path}) {alias}")
-
-        return ''.join(flatten_clauses), array_aliases
-
-    def build_field_reference(self, field_path: str, json_column: str,
-                            array_aliases: Dict[str, str], array_hierarchy: List[str]) -> str:
-        """Build field reference path - matches your procedure logic"""
-        if not array_hierarchy:
-            safe_field_path = self.sanitize_input(field_path)
-            return f"{json_column}:{safe_field_path}"
-
-        deepest_array = array_hierarchy[-1]
-        field_suffix = field_path[len(deepest_array) + 1:] if field_path.startswith(deepest_array + '.') else field_path
-
-        if deepest_array in array_aliases:
-            if field_suffix:
-                safe_field_suffix = self.sanitize_input(field_suffix)
-                return f"{array_aliases[deepest_array]}.value:{safe_field_suffix}"
-            else:
-                return f"{array_aliases[deepest_array]}.value"
+                parent = parts[-2]
+                return f"{field_name}_under_{parent}"
+        elif len(array_context) == 1:
+            array_name = array_context[0].split('.')[-1]
+            return f"{field_name}_in_each_{array_name.rstrip('s')}"
         else:
-            safe_field_path = self.sanitize_input(field_path)
-            return f"{json_column}:{safe_field_path}"
-
-    def sanitize_value(self, value: Any, field_type: str) -> str:
-        """Sanitize values for SQL - matches your procedure logic"""
-        if value is None:
-            return "NULL"
-
-        field_type = field_type.upper()
-
-        if isinstance(value, list):
-            sanitized_values = []
-            for v in value:
-                if field_type in ('NUMBER', 'INTEGER', 'INT', 'FLOAT', 'DECIMAL'):
-                    try:
-                        float(v)
-                        sanitized_values.append(str(v))
-                    except ValueError:
-                        sanitized_values.append(f"'{self.sanitize_input(str(v))}'")
-                else:
-                    sanitized_values.append(f"'{self.sanitize_input(str(v))}'")
-            return f"({', '.join(sanitized_values)})"
-
-        if field_type in ('NUMBER', 'INTEGER', 'INT', 'FLOAT', 'DECIMAL'):
-            try:
-                float(value)
-                return str(value)
-            except ValueError:
-                return f"'{self.sanitize_input(str(value))}'"
-
-        return f"'{self.sanitize_input(str(value))}'"
-
-    def generate_dynamic_sql(self, table_name: str, json_column: str,
-                           field_conditions: str, schema: Dict) -> str:
-        """Generate complete SQL query - matches your Snowflake procedure logic"""
-        try:
-            conditions = self.parse_field_conditions(field_conditions)
-
-            if not conditions:
-                return "-- No field conditions provided. Please specify fields to query."
-
-            select_parts = []
-            where_conditions = []
-            field_where_conditions = []
-            all_array_paths = set()
-            field_paths_map = {}
-
-            # Process conditions and build path mappings
-            for condition in conditions:
-                field = condition['field']
-                matching_paths = self.find_field_in_schema(schema, field)
-                if matching_paths:
-                    field_paths_map[field] = matching_paths
-
-                    for path, info in matching_paths:
-                        array_hierarchy = info.get('array_hierarchy', [])
-                        all_array_paths.update(array_hierarchy)
-
-            # Build flattening clauses
-            flatten_clauses, array_aliases = self.build_array_flattening(list(all_array_paths), json_column)
-
-            # Process each condition
-            for condition in conditions:
-                field = condition['field']
-                if field not in field_paths_map:
-                    continue
-
-                matching_paths = field_paths_map[field]
-                if not matching_paths:
-                    continue
-
-                # Use the best match
-                full_path, field_info = matching_paths[0]
-                field_type = field_info.get('snowflake_type', 'VARIANT')
-                array_hierarchy = field_info.get('array_hierarchy', [])
-                value_path = self.build_field_reference(full_path, json_column, array_aliases, array_hierarchy)
-
-                # Generate clean alias
-                alias = field.replace('.', '_')
-
-                # Apply casting if specified
-                if condition['cast']:
-                    cast_expr = f"CAST({value_path} AS {condition['cast']})"
-                    field_type = condition['cast']
-                else:
-                    cast_expr = f"{value_path}::{field_type}"
-
-                select_parts.append(f"{cast_expr} as {alias}")
-
-                # Build WHERE conditions
-                if condition['operator'] and condition['operator'] != 'IS NOT NULL':
-                    operator = condition['operator'].upper()
-
-                    if operator == 'BETWEEN' and isinstance(condition['value'], list) and len(condition['value']) == 2:
-                        start_val = self.sanitize_value(condition['value'][0], field_type)
-                        end_val = self.sanitize_value(condition['value'][1], field_type)
-                        where_clause = f"{cast_expr} BETWEEN {start_val} AND {end_val}"
-                    elif condition['value'] is not None:
-                        sanitized_value = self.sanitize_value(condition['value'], field_type)
-                        where_clause = f"{cast_expr} {operator} {sanitized_value}"
-                    else:
-                        where_clause = f"{cast_expr} {operator}"
-
-                    field_where_conditions.append({
-                        'condition': where_clause,
-                        'logic_operator': condition.get('logic_operator', 'AND')
+            nested_arrays = [ctx.split('.')[-1] for ctx in array_context]
+            return f"{field_name}_in_nested_{nested_arrays[-1].rstrip('s')}"
+    
+    def _create_multi_level_field_map(self, field_name_tracker: Dict, schema: Dict) -> Dict:
+        """Create multi-level field map for fields that appear at multiple levels (EXACT name matching only)"""
+        multi_level_map = {}
+        
+        for field_name, occurrences in field_name_tracker.items():
+            # Only consider fields with EXACT name matches (not substrings)
+            queryable_occurrences = [
+                occ for occ in occurrences 
+                if schema[occ['full_path']]['is_queryable'] and 
+                occ['full_path'].split('.')[-1] == field_name  # EXACT match only
+            ]
+            
+            if len(queryable_occurrences) > 1:
+                # Field appears at multiple levels with EXACT same name - create multi-level entry
+                multi_level_map[field_name] = {
+                    'total_occurrences': len(queryable_occurrences),
+                    'paths': []
+                }
+                
+                for occ in queryable_occurrences:
+                    full_path = occ['full_path']
+                    schema_entry = schema[full_path]
+                    
+                    multi_level_map[field_name]['paths'].append({
+                        'full_path': full_path,
+                        'alias': schema_entry['context_description'],
+                        'depth': occ['depth'],
+                        'array_context': occ['array_context'],
+                        'context_description': occ['context_description'],
+                        'schema_entry': schema_entry
                     })
-
-            # Build final WHERE clause
-            if field_where_conditions:
-                where_conditions.append(field_where_conditions[0]['condition'])
-                for condition_info in field_where_conditions[1:]:
-                    where_conditions.append(f"{condition_info['logic_operator']} {condition_info['condition']}")
-
-            # Build final SQL
-            safe_table_name = self.sanitize_input(table_name)
-
-            if not select_parts:
-                return "-- No valid fields found for selection. Please check your field names against the JSON structure."
-
-            sql = f"SELECT {', '.join(select_parts)}"
-            sql += f"\nFROM {safe_table_name}"
-
-            if flatten_clauses:
-                sql += flatten_clauses
-
-            if where_conditions:
-                sql += f"\nWHERE {' '.join(where_conditions)}"
-
-            return sql + ";"
-
+                
+                # Sort by depth for consistent ordering
+                multi_level_map[field_name]['paths'].sort(key=lambda x: (x['depth'], x['full_path']))
+        
+        return multi_level_map
+    
+    def get_multi_level_field_info(self) -> Dict:
+        """Get multi-level field information for UI display"""
+        return self.multi_level_fields
+    
+    def _get_snowflake_type(self, python_type: str) -> str:
+        """Map Python type to Snowflake type"""
+        type_mapping = {
+            'str': 'VARCHAR',
+            'int': 'NUMBER',
+            'float': 'FLOAT',
+            'bool': 'BOOLEAN',
+            'list': 'ARRAY',
+            'dict': 'OBJECT',
+            'NoneType': 'VARCHAR'
+        }
+        return type_mapping.get(python_type, 'VARIANT')
+    
+    def generate_dynamic_sql(self, table_name: str, json_column: str, field_conditions: str, schema: Dict[str, Dict]) -> str:
+        """
+        ENHANCED: Generate SQL with multi-level field detection
+        """
+        try:
+            # Reset tracking for each SQL generation
+            self.flatten_alias_map = {}
+            self.path_usage_tracker = {}
+            
+            # Parse field conditions with multi-level detection
+            fields_info, warnings = self._parse_field_conditions_with_multi_level(field_conditions, schema)
+            
+            if not fields_info:
+                return "-- Error: No valid fields found in conditions"
+            
+            # Build SQL components
+            select_clause = self._build_select_clause_multi_level(fields_info, schema, json_column)
+            from_clause = self._build_from_clause_optimized(table_name, json_column, fields_info, schema)
+            where_clause = self._build_where_clause_multi_level(fields_info, schema, json_column)
+            
+            sql_parts = [select_clause, from_clause]
+            if where_clause.strip():
+                sql_parts.append(where_clause)
+            
+            return '\n'.join(sql_parts) + ';'
+            
         except Exception as e:
-            logger.error(f"Error generating SQL: {e}")
-            return f"-- Error generating SQL: {str(e)}\\n-- Please check your field conditions and try again."
+            logger.error(f"Enhanced SQL generation failed: {e}")
+            return f"-- Error generating SQL: {str(e)}"
+    
+    def generate_sql_with_warnings(self, table_name: str, json_column: str, field_conditions: str, schema: Dict[str, Dict]) -> Tuple[str, List[str]]:
+        """
+        ENHANCED: Generate SQL with multi-level field warnings
+        Returns: (sql, warnings)
+        """
+        try:
+            # Reset tracking
+            self.flatten_alias_map = {}
+            self.path_usage_tracker = {}
+            
+            # Parse field conditions with multi-level detection
+            fields_info, parsing_warnings = self._parse_field_conditions_with_multi_level(field_conditions, schema)
+            
+            # Get multi-level field warnings
+            multi_level_warnings = self._get_multi_level_warnings(field_conditions)
+            
+            # Combine all warnings
+            all_warnings = parsing_warnings + multi_level_warnings
+            
+            if not fields_info:
+                return "-- Error: No valid fields found in conditions", ["❌ No valid fields found"]
+            
+            # Build SQL components
+            select_clause = self._build_select_clause_multi_level(fields_info, schema, json_column)
+            from_clause = self._build_from_clause_optimized(table_name, json_column, fields_info, schema)
+            where_clause = self._build_where_clause_multi_level(fields_info, schema, json_column)
+            
+            sql_parts = [select_clause, from_clause]
+            if where_clause.strip():
+                sql_parts.append(where_clause)
+            
+            return '\n'.join(sql_parts) + ';', all_warnings
+            
+        except Exception as e:
+            logger.error(f"Enhanced SQL generation failed: {e}")
+            return f"-- Error generating SQL: {str(e)}", [f"❌ Generation error: {str(e)}"]
+    
+    def _parse_field_conditions_with_multi_level(self, field_conditions: str, schema: Dict[str, Dict]) -> Tuple[List[Dict], List[str]]:
+        """
+        ENHANCED: Parse field conditions with multi-level detection
+        Returns: (parsed_fields, warnings)
+        """
+        fields_info = []
+        warnings = []
+        
+        conditions = [c.strip() for c in field_conditions.split(',')]
+        
+        for condition in conditions:
+            if not condition:
+                continue
+                
+            # Parse field[operator:value] or just field
+            if '[' in condition and ']' in condition:
+                field_path = condition.split('[')[0].strip()
+                condition_part = condition[condition.index('[') + 1:condition.rindex(']')]
+                
+                if ':' in condition_part:
+                    operator, value = condition_part.split(':', 1)
+                    operator = operator.strip()
+                    value = value.strip()
+                else:
+                    operator = condition_part.strip()
+                    value = None
+            else:
+                field_path = condition.strip()
+                operator = None
+                value = None
+            
+            # Multi-level field resolution
+            resolved_fields, resolution_warnings = self._resolve_field_multi_level(field_path, schema)
+            
+            if resolved_fields:
+                for resolved_field in resolved_fields:
+                    fields_info.append({
+                        'field_path': resolved_field['full_path'],
+                        'original_field': field_path,
+                        'suggested_alias': resolved_field['alias'],
+                        'operator': operator,
+                        'value': value,
+                        'schema_entry': resolved_field['schema_entry'],
+                        'is_multi_level': resolved_field.get('is_multi_level', False),
+                        'level_description': resolved_field.get('context_description', '')
+                    })
+                    
+                    # Track usage
+                    self.path_usage_tracker[resolved_field['full_path']] = True
+                
+                if resolution_warnings:
+                    warnings.extend(resolution_warnings)
+            else:
+                warnings.append(f"⚠️ Field '{field_path}' not found or not queryable")
+        
+        return fields_info, warnings
+    
+    def _resolve_field_multi_level(self, field_input: str, schema: Dict[str, Dict]) -> Tuple[List[Dict], List[str]]:
+        """
+        ENHANCED: Resolve field with multi-level detection
+        If user specifies simple field name, return ALL occurrences
+        """
+        warnings = []
+        
+        # Try exact path match first
+        if field_input in schema and schema[field_input]['is_queryable']:
+            return [{
+                'full_path': field_input,
+                'alias': field_input.split('.')[-1],
+                'schema_entry': schema[field_input],
+                'is_multi_level': False
+            }], []
+        
+        # Extract simple field name
+        simple_field_name = field_input.split('.')[-1]
+        
+        # Check if this field has multiple levels
+        if simple_field_name in self.multi_level_fields and field_input == simple_field_name:
+            # User wants ALL occurrences of this field
+            multi_level_info = self.multi_level_fields[simple_field_name]
+            resolved_fields = []
+            
+            for path_info in multi_level_info['paths']:
+                resolved_fields.append({
+                    'full_path': path_info['full_path'],
+                    'alias': path_info['alias'],
+                    'schema_entry': path_info['schema_entry'],
+                    'is_multi_level': True,
+                    'context_description': path_info['context_description']
+                })
+            
+            warnings.append(
+                f"✅ Found '{simple_field_name}' at {multi_level_info['total_occurrences']} levels. "
+                f"Including ALL occurrences with descriptive aliases: {', '.join([f['alias'] for f in resolved_fields])}"
+            )
+            
+            return resolved_fields, warnings
+        
+        # Try exact field name matching only (not substring matching)
+        # CORRECTED INDENTATION STARTS HERE
+        matching_paths = []
+        for path, details in schema.items():
+            if details['is_queryable']:
+                # Extract the actual field name from the full path
+                actual_field_name = path.split('.')[-1]
+                
+                # Only match if the field name is EXACTLY the same
+                if actual_field_name == field_input:
+                    matching_paths.append({
+                        'full_path': path,
+                        'alias': details['context_description'],
+                        'schema_entry': details,
+                        'is_multi_level': False
+                    })
+                # Also allow exact path matching for full path specifications
+                elif path == field_input:
+                    matching_paths.append({
+                        'full_path': path,
+                        'alias': details['context_description'],
+                        'schema_entry': details,
+                        'is_multi_level': False
+                    })
+            
+        if matching_paths:
+            if len(matching_paths) == 1:
+                warnings.append(f"ℹ️ Matched '{field_input}' → '{matching_paths[0]['full_path']}'")
+            else:
+                warnings.append(f"✅ Found '{field_input}' at {len(matching_paths)} locations. Including ALL occurrences.")
+            
+            return matching_paths, warnings
+        
+        return [], []
+    
+    def _get_multi_level_warnings(self, field_conditions: str) -> List[str]:
+        """Get specific warnings for multi-level field usage"""
+        warnings = []
+        
+        conditions = [c.strip() for c in field_conditions.split(',')]
+        
+        for condition in conditions:
+            if not condition:
+                continue
+                
+            field_name = condition.split('[')[0].strip() if '[' in condition else condition.strip()
+            simple_field_name = field_name.split('.')[-1]
+            
+            if simple_field_name in self.multi_level_fields and field_name == simple_field_name:
+                multi_level_info = self.multi_level_fields[simple_field_name]
+                aliases = [path['alias'] for path in multi_level_info['paths']]
+                
+                warnings.append(
+                    f"🎯 Multi-level field '{field_name}' expanded to {multi_level_info['total_occurrences']} columns: {', '.join(aliases)}"
+                )
+        
+        return warnings
+    
+    def _build_select_clause_multi_level(self, fields_info: List[Dict], schema: Dict[str, Dict], json_column: str) -> str:
+        """
+        ENHANCED: Build SELECT clause for multi-level fields
+        """
+        select_parts = []
+        used_aliases = set()
+        
+        for field_info in fields_info:
+            field_path = field_info['field_path']
+            suggested_alias = field_info['suggested_alias']
+            schema_entry = field_info['schema_entry']
+            snowflake_type = schema_entry.get('snowflake_type', 'VARCHAR')
+            array_context = schema_entry.get('array_context', [])
+            
+            # Ensure unique alias
+            final_alias = self._ensure_unique_alias(suggested_alias, used_aliases)
+            used_aliases.add(final_alias)
+            
+            if array_context:
+                flatten_alias = self._get_flatten_alias(array_context)
+                relative_path = self._calculate_relative_path_dynamic(field_path, array_context)
+                sql_path = f"{flatten_alias}.value:{relative_path}::{snowflake_type}"
+            else:
+                json_path = field_path.replace('.', ':')
+                sql_path = f"{json_column}:{json_path}::{snowflake_type}"
+            
+            select_parts.append(f"{sql_path} as {final_alias}")
+        
+        return f"SELECT {', '.join(select_parts)}"
+    
+    def _build_where_clause_multi_level(self, fields_info: List[Dict], schema: Dict[str, Dict], json_column: str) -> str:
+        """
+        ENHANCED: Build WHERE clause for multi-level fields
+        When user specifies condition on multi-level field, apply to ALL levels
+        """
+        where_conditions = []
+        
+        # Group conditions by original field to handle multi-level
+        condition_groups = {}
+        for field_info in fields_info:
+            original_field = field_info.get('original_field')
+            operator = field_info.get('operator')
+            value = field_info.get('value')
+            
+            if not operator:
+                continue
+                
+            if original_field not in condition_groups:
+                condition_groups[original_field] = []
+            
+            condition_groups[original_field].append({
+                'field_info': field_info,
+                'operator': operator,
+                'value': value
+            })
+        
+        for original_field, conditions in condition_groups.items():
+            if len(conditions) > 1:
+                # Multi-level field - create OR condition for all levels
+                level_conditions = []
+                
+                for cond in conditions:
+                    field_info = cond['field_info']
+                    operator = cond['operator']
+                    value = cond['value']
+                    
+                    field_path = field_info['field_path']
+                    schema_entry = field_info['schema_entry']
+                    array_context = schema_entry.get('array_context', [])
+                    
+                    if array_context:
+                        flatten_alias = self._get_flatten_alias(array_context)
+                        relative_path = self._calculate_relative_path_dynamic(field_path, array_context)
+                        sql_ref = f"{flatten_alias}.value:{relative_path}"
+                    else:
+                        json_path = field_path.replace('.', ':')
+                        sql_ref = f"{json_column}:{json_path}"
+                    
+                    # Build condition based on operator
+                    if operator.upper() == 'IS NOT NULL':
+                        level_conditions.append(f"{sql_ref} IS NOT NULL")
+                    elif operator == '=':
+                        level_conditions.append(f"{sql_ref}::VARCHAR = '{value}'")
+                    elif operator == '>':
+                        level_conditions.append(f"{sql_ref}::NUMBER > {value}")
+                    elif operator == '<':
+                        level_conditions.append(f"{sql_ref}::NUMBER < {value}")
+                    elif operator.upper() == 'IN':
+                        values_list = [f"'{v.strip()}'" for v in value.split('|')]
+                        level_conditions.append(f"{sql_ref}::VARCHAR IN ({', '.join(values_list)})")
+                    elif operator.upper() == 'LIKE':
+                        level_conditions.append(f"{sql_ref}::VARCHAR LIKE '%{value}%'")
+                
+                if level_conditions:
+                    where_conditions.append(f"({' OR '.join(level_conditions)})")
+            else:
+                # Single level field
+                cond = conditions[0]
+                field_info = cond['field_info']
+                operator = cond['operator']
+                value = cond['value']
+                
+                field_path = field_info['field_path']
+                schema_entry = field_info['schema_entry']
+                array_context = schema_entry.get('array_context', [])
+                
+                if array_context:
+                    flatten_alias = self._get_flatten_alias(array_context)
+                    relative_path = self._calculate_relative_path_dynamic(field_path, array_context)
+                    sql_ref = f"{flatten_alias}.value:{relative_path}"
+                else:
+                    json_path = field_path.replace('.', ':')
+                    sql_ref = f"{json_column}:{json_path}"
+                
+                # Build condition based on operator
+                if operator.upper() == 'IS NOT NULL':
+                    where_conditions.append(f"{sql_ref} IS NOT NULL")
+                elif operator == '=':
+                    where_conditions.append(f"{sql_ref}::VARCHAR = '{value}'")
+                elif operator == '>':
+                    where_conditions.append(f"{sql_ref}::NUMBER > {value}")
+                elif operator == '<':
+                    where_conditions.append(f"{sql_ref}::NUMBER < {value}")
+                elif operator.upper() == 'IN':
+                    values_list = [f"'{v.strip()}'" for v in value.split('|')]
+                    where_conditions.append(f"{sql_ref}::VARCHAR IN ({', '.join(values_list)})")
+                elif operator.upper() == 'LIKE':
+                    where_conditions.append(f"{sql_ref}::VARCHAR LIKE '%{value}%'")
+        
+        return f"WHERE {' AND '.join(where_conditions)}" if where_conditions else ""
+    
+    def _ensure_unique_alias(self, preferred_alias: str, used_aliases: set) -> str:
+        """Ensure alias is unique by adding counter if needed"""
+        if preferred_alias not in used_aliases:
+            return preferred_alias
+        
+        counter = 1
+        while f"{preferred_alias}_{counter}" in used_aliases:
+            counter += 1
+        
+        return f"{preferred_alias}_{counter}"
+    
+    def _get_flatten_alias(self, array_context: List[str]) -> str:
+        """Get flatten alias based on pre-assigned mapping"""
+        context_key = tuple(array_context)
+        
+        # If already assigned, return it
+        if context_key in self.flatten_alias_map:
+            return self.flatten_alias_map[context_key]
+        
+        # This shouldn't happen with the new logic, but fallback
+        level = len(array_context)
+        alias = f"f{level}"
+        self.flatten_alias_map[context_key] = alias
+        return alias
+    
+    def _build_from_clause_optimized(self, table_name: str, json_column: str, fields_info: List[Dict], schema: Dict[str, Dict]) -> str:
+        """
+        CORRECTED: Build FROM clause with proper flatten alias ordering (f1 for top-level, f2 for nested, etc.)
+        """
+        from_parts = [table_name]
+        required_flattens = {}
+        
+        # Collect all required flattens
+        for field_info in fields_info:
+            array_context = field_info['schema_entry'].get('array_context', [])
+            
+            for i, context in enumerate(array_context):
+                context_tuple = tuple(array_context[:i+1])
+                
+                if context_tuple not in required_flattens:
+                    required_flattens[context_tuple] = {
+                        'depth': i,  # Use 0-based depth
+                        'array_path': context,
+                        'full_context': array_context[:i+1]
+                    }
+        
+        # Sort flattens by depth to ensure proper order
+        sorted_flattens = sorted(required_flattens.items(), key=lambda x: x[1]['depth'])
+        
+        # Clear existing mapping and assign aliases in correct order
+        self.flatten_alias_map.clear()
+        
+        # Assign aliases: f1 for first (top-level), f2 for second (nested), etc.
+        for idx, (context_tuple, flatten_info) in enumerate(sorted_flattens):
+            alias = f"f{idx + 1}"  # f1, f2, f3, etc.
+            self.flatten_alias_map[context_tuple] = alias
+        
+        # Build LATERAL FLATTEN clauses
+        for idx, (context_tuple, flatten_info) in enumerate(sorted_flattens):
+            depth = flatten_info['depth']
+            array_path = flatten_info['array_path']
+            flatten_alias = f"f{idx + 1}"  # f1, f2, f3, etc.
+            
+            if depth == 0:
+                # Top-level array
+                clean_path = array_path.replace('.', ':')
+                flatten_input = f"{json_column}:{clean_path}"
+            else:
+                # Nested array - find parent
+                parent_context = tuple(flatten_info['full_context'][:depth])
+                parent_alias = self.flatten_alias_map[parent_context]
+                
+                # Calculate relative path from parent
+                parent_array_path = flatten_info['full_context'][depth-1]
+                
+                if array_path.startswith(parent_array_path + '.'):
+                    relative_path = array_path[len(parent_array_path) + 1:]
+                else:
+                    relative_path = array_path.split('.')[-1]
+                
+                flatten_input = f"{parent_alias}.value:{relative_path}"
+            
+            from_parts.append(f"LATERAL FLATTEN(input => {flatten_input}) {flatten_alias}")
+        
+        return f"FROM {', '.join(from_parts)}"
+    
+    def _calculate_relative_path_dynamic(self, full_path: str, array_context: List[str]) -> str:
+        """Calculate relative path within flattened context"""
+        if not array_context:
+            return full_path.replace('.', ':')
+        
+        deepest_array = array_context[-1]
+        
+        if full_path.startswith(deepest_array + '.'):
+            relative_path = full_path[len(deepest_array) + 1:]
+        else:
+            relative_path = full_path.split('.')[-1]
+        
+        return relative_path.replace('.', ':')
 
 
-def generate_sql_from_json_data(json_data: Any, table_name: str,
-                               json_column: str, field_conditions: str) -> str:
+def generate_sql_from_json_data(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> str:
     """
-    Main function to generate SQL from JSON data
-    This replaces your Snowflake procedure call in Streamlit
+    ENHANCED: Generate SQL from JSON data with multi-level field support
+    This is the main function called by your application - maintains backward compatibility
     """
     try:
         generator = PythonSQLGenerator()
         schema = generator.analyze_json_for_sql(json_data)
-        sql = generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
-        return sql
+        
+        if not schema:
+            return "-- Error: Could not analyze JSON structure"
+        
+        return generator.generate_dynamic_sql(table_name, json_column, field_conditions, schema)
+        
     except Exception as e:
-        logger.error(f"Failed to generate SQL from JSON data: {e}")
-        return f"-- Error: Failed to generate SQL\\n-- {str(e)}"
+        logger.error(f"SQL generation from JSON data failed: {e}")
+        return f"-- Error: {str(e)}"
+
+
+def generate_sql_from_json_data_with_warnings(json_data: Any, table_name: str, json_column: str, field_conditions: str) -> Tuple[str, List[str], Dict]:
+    """
+    NEW: Enhanced version that returns SQL, warnings, and multi-level info
+    Use this for enhanced UI features
+    """
+    try:
+        generator = PythonSQLGenerator()
+        schema = generator.analyze_json_for_sql(json_data)
+        
+        if not schema:
+            return "-- Error: Could not analyze JSON structure", ["❌ Schema analysis failed"], {}
+        
+        sql, warnings = generator.generate_sql_with_warnings(table_name, json_column, field_conditions, schema)
+        multi_level_info = generator.get_multi_level_field_info()
+        
+        return sql, warnings, multi_level_info
+        
+    except Exception as e:
+        logger.error(f"Enhanced SQL generation failed: {e}")
+        return f"-- Error: {str(e)}", [f"❌ Generation error: {str(e)}"], {}
+
+
+def analyze_json_structure_simple(json_data: Any) -> Dict[str, Any]:
+    """Simple JSON structure analysis for basic use cases"""
+    try:
+        generator = PythonSQLGenerator()
+        schema = generator.analyze_json_for_sql(json_data)
+        
+        # Return simplified structure info
+        structure_info = {
+            'total_fields': len(schema),
+            'queryable_fields': sum(1 for details in schema.values() if details.get('is_queryable', False)),
+            'nested_objects': sum(1 for details in schema.values() if details.get('is_nested_object', False)),
+            'arrays': sum(1 for details in schema.values() if details.get('is_array', False)),
+            'field_paths': list(schema.keys()),
+            'multi_level_fields': len(generator.get_multi_level_field_info())
+        }
+        
+        return structure_info
+        
+    except Exception as e:
+        logger.error(f"Simple JSON analysis failed: {e}")
+        return {
+            'error': str(e),
+            'total_fields': 0,
+            'queryable_fields': 0,
+            'nested_objects': 0,
+            'arrays': 0,
+            'field_paths': [],
+            'multi_level_fields': 0
+        }
+
+
+def get_field_suggestions_simple(json_data: Any, max_suggestions: int = 5) -> List[str]:
+    """Get simple field suggestions from JSON data"""
+    try:
+        generator = PythonSQLGenerator()
+        schema = generator.analyze_json_for_sql(json_data)
+        multi_level_info = generator.get_multi_level_field_info()
+        
+        suggestions = []
+        
+        # Prioritize multi-level fields
+        for field_name in multi_level_info.keys():
+            if len(suggestions) >= max_suggestions:
+                break
+            suggestions.append(field_name)
+        
+        # Add high-frequency queryable fields
+        queryable_fields = [
+            (path, details) for path, details in schema.items()
+            if details.get('is_queryable', False) and details.get('frequency', 0) > 0.5
+        ]
+        
+        # Sort by frequency and add to suggestions
+        queryable_fields.sort(key=lambda x: x[1].get('frequency', 0), reverse=True)
+        
+        for path, details in queryable_fields:
+            field_name = path.split('.')[-1]
+            if field_name not in multi_level_info and len(suggestions) < max_suggestions:
+                suggestions.append(path)
+        
+        return suggestions[:max_suggestions]
+        
+    except Exception as e:
+        logger.error(f"Simple field suggestions failed: {e}")
+        return []
+
+
+def validate_field_conditions_format(field_conditions: str) -> Tuple[bool, List[str]]:
+    """Validate field conditions format"""
+    try:
+        errors = []
+        conditions = [c.strip() for c in field_conditions.split(',') if c.strip()]
+        
+        for condition in conditions:
+            # Check basic format
+            if '[' in condition:
+                if not condition.endswith(']'):
+                    errors.append(f"Condition '{condition}' missing closing bracket")
+                    continue
+                
+                field_part = condition.split('[')[0].strip()
+                condition_part = condition[condition.index('[') + 1:condition.rindex(']')]
+                
+                if not field_part:
+                    errors.append(f"Empty field name in condition '{condition}'")
+                
+                if not condition_part:
+                    errors.append(f"Empty condition in '{condition}'")
+                
+                # Check for valid operators
+                if ':' in condition_part:
+                    operator = condition_part.split(':', 1)[0].strip().upper()
+                    valid_operators = ['IS NOT NULL', '=', '>', '<', 'IN', 'LIKE', 'NOT LIKE', '>=', '<=', '!=']
+                    
+                    if operator not in valid_operators:
+                        errors.append(f"Unknown operator '{operator}' in condition '{condition}'")
+            
+            elif not condition.replace('.', '').replace('_', '').isalnum():
+                # Basic field name validation
+                errors.append(f"Field name '{condition}' contains invalid characters")
+        
+        return len(errors) == 0, errors
+        
+    except Exception as e:
+        logger.error(f"Field condition validation failed: {e}")
+        return False, [f"Validation error: {str(e)}"]
+
+
+def extract_json_sample_values(json_data: Any, field_path: str, max_samples: int = 10) -> List[Any]:
+    """Extract sample values for a specific field path from JSON data"""
+    try:
+        def extract_values(obj, path_parts, current_depth=0):
+            if current_depth >= len(path_parts):
+                return [obj] if obj is not None else []
+            
+            current_key = path_parts[current_depth]
+            values = []
+            
+            if isinstance(obj, dict) and current_key in obj:
+                values.extend(extract_values(obj[current_key], path_parts, current_depth + 1))
+            elif isinstance(obj, list):
+                for item in obj:
+                    values.extend(extract_values(item, path_parts, current_depth))
+            
+            return values
+        
+        path_parts = field_path.split('.')
+        sample_values = extract_values(json_data, path_parts)
+        
+        # Remove duplicates while preserving order
+        unique_values = []
+        seen = set()
+        
+        for value in sample_values[:max_samples * 2]:  # Get extra to account for duplicates
+            str_value = str(value)
+            if str_value not in seen:
+                seen.add(str_value)
+                unique_values.append(value)
+                
+                if len(unique_values) >= max_samples:
+                    break
+        
+        return unique_values
+        
+    except Exception as e:
+        logger.error(f"Sample value extraction failed for {field_path}: {e}")
+        return []
+
+
+def get_json_depth_info(json_data: Any) -> Dict[str, Any]:
+    """Get depth information about JSON structure"""
+    try:
+        def calculate_depth(obj, current_depth=0):
+            if isinstance(obj, dict):
+                if not obj:
+                    return current_depth
+                return max(calculate_depth(v, current_depth + 1) for v in obj.values())
+            elif isinstance(obj, list):
+                if not obj:
+                    return current_depth
+                return max(calculate_depth(item, current_depth) for item in obj if item is not None)
+            else:
+                return current_depth
+        
+        max_depth = calculate_depth(json_data)
+        
+        # Count objects at each level
+        def count_by_depth(obj, current_depth=0, counts=None):
+            if counts is None:
+                counts = {}
+            
+            level = f"depth_{current_depth}"
+            counts[level] = counts.get(level, 0) + 1
+            
+            if isinstance(obj, dict):
+                for value in obj.values():
+                    count_by_depth(value, current_depth + 1, counts)
+            elif isinstance(obj, list):
+                for item in obj:
+                    if item is not None:
+                        count_by_depth(item, current_depth + 1, counts)
+            
+            return counts
+        
+        depth_counts = count_by_depth(json_data)
+        
+        return {
+            'max_depth': max_depth,
+            'depth_distribution': depth_counts,
+            'complexity': 'High' if max_depth > 5 else 'Medium' if max_depth > 2 else 'Low'
+        }
+        
+    except Exception as e:
+        logger.error(f"JSON depth analysis failed: {e}")
+        return {
+            'max_depth': 0,
+            'depth_distribution': {},
+            'complexity': 'Unknown',
+            'error': str(e)
+        }
+
+
+def compare_json_schemas(schema1: Dict, schema2: Dict) -> Dict[str, Any]:
+    """Compare two JSON schemas and return differences"""
+    try:
+        comparison = {
+            'common_fields': [],
+            'schema1_only': [],
+            'schema2_only': [],
+            'type_differences': [],
+            'similarity_score': 0.0
+        }
+        
+        paths1 = set(schema1.keys())
+        paths2 = set(schema2.keys())
+        
+        comparison['common_fields'] = list(paths1.intersection(paths2))
+        comparison['schema1_only'] = list(paths1 - paths2)
+        comparison['schema2_only'] = list(paths2 - paths1)
+        
+        # Check type differences for common fields
+        for path in comparison['common_fields']:
+            type1 = schema1[path].get('snowflake_type', 'UNKNOWN')
+            type2 = schema2[path].get('snowflake_type', 'UNKNOWN')
+            
+            if type1 != type2:
+                comparison['type_differences'].append({
+                    'path': path,
+                    'schema1_type': type1,
+                    'schema2_type': type2
+                })
+        
+        # Calculate similarity score
+        total_unique_fields = len(paths1.union(paths2))
+        common_fields_count = len(comparison['common_fields'])
+        
+        if total_unique_fields > 0:
+            comparison['similarity_score'] = common_fields_count / total_unique_fields
+        
+        return comparison
+        
+    except Exception as e:
+        logger.error(f"Schema comparison failed: {e}")
+        return {
+            'error': str(e),
+            'common_fields': [],
+            'schema1_only': [],
+            'schema2_only': [],
+            'type_differences': [],
+            'similarity_score': 0.0
+        }
+
+
+def optimize_sql_performance(sql: str, optimization_level: str = 'medium') -> Tuple[str, List[str]]:
+    """Apply basic SQL optimizations"""
+    try:
+        optimized_sql = sql
+        optimizations_applied = []
+        
+        if optimization_level in ['medium', 'high']:
+            # Remove unnecessary type casting where possible
+            if '::VARCHAR' in optimized_sql and 'LIKE' not in optimized_sql.upper():
+                # Only keep VARCHAR casting where needed for string operations
+                lines = optimized_sql.split('\n')
+                for i, line in enumerate(lines):
+                    if '::VARCHAR' in line and 'IS NOT NULL' in line:
+                        lines[i] = line.replace('::VARCHAR', '')
+                        if 'Removed unnecessary VARCHAR casting' not in optimizations_applied:
+                            optimizations_applied.append('Removed unnecessary VARCHAR casting for NOT NULL checks')
+                
+                optimized_sql = '\n'.join(lines)
+        
+        if optimization_level == 'high':
+            # Additional high-level optimizations could be added here
+            pass
+        
+        return optimized_sql, optimizations_applied
+        
+    except Exception as e:
+        logger.error(f"SQL optimization failed: {e}")
+        return sql, [f"Optimization failed: {str(e)}"]
+
+
+# Backward compatibility functions
+def get_field_disambiguation_warnings(field_conditions: str, schema: Dict) -> List[str]:
+    """Backward compatibility wrapper for multi-level warnings"""
+    try:
+        generator = PythonSQLGenerator()
+        generator.multi_level_fields = generator._create_multi_level_field_map(
+            {}, schema  # Simplified call for compatibility
+        )
+        return generator._get_multi_level_warnings(field_conditions)
+    except Exception as e:
+        logger.error(f"Compatibility warning generation failed: {e}")
+        return [f"Warning generation error: {str(e)}"]
+
+
+def create_sql_execution_plan(sql: str) -> Dict[str, Any]:
+    """Create a basic execution plan summary"""
+    try:
+        plan = {
+            'operations': [],
+            'estimated_complexity': 'Medium',
+            'recommendations': []
+        }
+        
+        sql_upper = sql.upper()
+        
+        # Analyze SQL structure
+        if 'LATERAL FLATTEN' in sql_upper:
+            flatten_count = sql_upper.count('LATERAL FLATTEN')
+            plan['operations'].append(f'LATERAL FLATTEN operations: {flatten_count}')
+            
+            if flatten_count > 2:
+                plan['estimated_complexity'] = 'High'
+                plan['recommendations'].append('Consider limiting JSON depth or filtering data earlier')
+        
+        if 'WHERE' not in sql_upper:
+            plan['recommendations'].append('Consider adding WHERE conditions to limit data scanned')
+        
+        if sql_upper.count('SELECT') > 1:
+            plan['operations'].append('Complex query with subqueries or CTEs')
+        
+        # Count projected columns
+        select_part = sql.split('FROM')[0] if 'FROM' in sql.upper() else sql
+        column_count = select_part.count(',') + 1 if 'SELECT' in select_part.upper() else 0
+        
+        if column_count > 10:
+            plan['recommendations'].append('Consider selecting only necessary columns for better performance')
+        
+        plan['operations'].append(f'Projected columns: {column_count}')
+        
+        if len(plan['operations']) <= 2 and not plan['recommendations']:
+            plan['estimated_complexity'] = 'Low'
+        
+        return plan
+        
+    except Exception as e:
+        logger.error(f"Execution plan creation failed: {e}")
+        return {
+            'operations': ['Analysis failed'],
+            'estimated_complexity': 'Unknown',
+            'recommendations': [f'Plan analysis error: {str(e)}'],
+            'error': str(e)
+        }
+
+
+if __name__ == "__main__":
+    logger.info("Enhanced Python SQL Generator with Multi-Level Field Support loaded successfully")
